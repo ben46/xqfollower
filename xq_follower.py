@@ -123,8 +123,6 @@ class XueQiuFollower(BaseFollower):
         self.set_exp_secs(trade_cmd_expire_seconds)
         self._adjust_sell = adjust_sell
         self._users = self.warp_list(users)
-        if cmd_cache:
-            self.load_expired_cmd_cache()
 
         for strategy_url in strategy_list:
             print(strategy_url)
