@@ -34,32 +34,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
         self.trader = None
         self.track_fail = 0
 
-    def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
-        idx = 0
-        for transaction in transactions:
-            trade_cmd = {
-                "strategy": strategy,
-                "user": userid,
-                "msg_id": transaction["msg_id"] if "msg_id" in transaction else msg_id,
-                "strategy_name": name,
-                "action": transaction["action"],
-                "stock_code": transaction["stock_code"],
-                "amount": transaction["amount"],
-                "price": transaction["price"],
-                "datetime": transaction["datetime"],
-            }
-            if self.cmd_mgr.is_cmd_expired(trade_cmd):
-                logger.info('指令与缓存指令冲突')
-                continue
-            log_trade(logger, trade_cmd, name)
-            self.execute_trade_cmd(trade_cmd)
-            self.cmd_mgr.add_cmd_to_expired_cmds(trade_cmd)
-            idx += 1
-        return idx
-
-    def set_exp_secs(self, _s):
-        self.trade_cmd_expire_seconds = _s
-
     # 在需要拉取详细的交易记录时候， 这个函数会被调用
     def track_strategy(self, strategy, name, assets_list, msg_id,  **kwargs):
         for mytrack_times in range(5):
@@ -96,7 +70,48 @@ class BaseFollower(metaclass=abc.ABCMeta):
             except KeyboardInterrupt:
                 logger.info("程序退出")
                 exit()
+                
+    def query_strategy_transaction(self, strategy, assets_list, **kwargs):
+        params = self.create_query_transaction_params(strategy)
+        rep = self.s.get(self.TRANSACTION_API, params=params)
+        history = rep.json()
+        tra_list = []
+        for assets in assets_list:
+            transactions = self.extract_transactions(history)
+            kwargs['assets'] = assets
+            self.project_transactions(transactions, **kwargs)
+            ret = self.order_transactions_sell_first(transactions)
+            copy_list = []
+            for tra in ret:
+                copy_list.append(tra.copy())
+            tra_list.append(copy_list)
+        return tra_list
+    
+    def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
+        idx = 0
+        for transaction in transactions:
+            trade_cmd = {
+                "strategy": strategy,
+                "user": userid,
+                "msg_id": transaction["msg_id"] if "msg_id" in transaction else msg_id,
+                "strategy_name": name,
+                "action": transaction["action"],
+                "stock_code": transaction["stock_code"],
+                "amount": transaction["amount"],
+                "price": transaction["price"],
+                "datetime": transaction["datetime"],
+            }
+            if self.cmd_mgr.is_cmd_expired(trade_cmd):
+                logger.info('指令与缓存指令冲突')
+                continue
+            log_trade(logger, trade_cmd, name)
+            self.execute_trade_cmd(trade_cmd)
+            self.cmd_mgr.add_cmd_to_expired_cmds(trade_cmd)
+            idx += 1
+        return idx
 
+    def set_exp_secs(self, _s):
+        self.trade_cmd_expire_seconds = _s
 
     def execute_trade_cmd(
         self, trade_cmd
@@ -139,22 +154,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
         else:
             log_info(logger, trade_cmd, actual_price, response)
             return
-
-    def query_strategy_transaction(self, strategy, assets_list, **kwargs):
-        params = self.create_query_transaction_params(strategy)
-        rep = self.s.get(self.TRANSACTION_API, params=params)
-        history = rep.json()
-        tra_list = []
-        for assets in assets_list:
-            transactions = self.extract_transactions(history)
-            kwargs['assets'] = assets
-            self.project_transactions(transactions, **kwargs)
-            ret = self.order_transactions_sell_first(transactions)
-            copy_list = []
-            for tra in ret:
-                copy_list.append(tra.copy())
-            tra_list.append(copy_list)
-        return tra_list
 
     def order_transactions_sell_first(self, transactions):
         # 调整调仓记录的顺序为先卖再买
