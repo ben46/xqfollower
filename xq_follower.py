@@ -6,11 +6,9 @@ import re
 import time
 from datetime import datetime
 from numbers import Number
-import os
 from easytrader.follower import BaseFollower
 from easytrader.log import logger
 from easytrader.utils.misc import parse_cookies_str
-import mysql.connector
 import asyncio
 import websockets
 import pytz
@@ -21,6 +19,7 @@ import inspect
 import utils_zq.Myqq as Myqq
 import threading
 from dotenv import load_dotenv
+from db_mgr import DbMgr
 
 class XueQiuFollower(BaseFollower):
     LOGIN_PAGE = "https://www.xueqiu.com"
@@ -42,12 +41,8 @@ class XueQiuFollower(BaseFollower):
         self._read_config()
         self.msg_id_set_lock = threading.Lock()
         load_dotenv()  # 加载 .env 文件中的配置
-
-        self.db_host = os.getenv("DB_HOST")
-        self.db_user = os.getenv("DB_USER")
-        self.db_password = os.getenv("DB_PASSWORD")
-        self.db_database = os.getenv("DB_DATABASE")
-        self.db_auth_plugin = os.getenv("DB_AUTH_PLUGIN")
+        self.db_mgr = DbMgr()
+        
 
     def login(self, user=None, password=None, **kwargs):
         """
@@ -231,14 +226,8 @@ class XueQiuFollower(BaseFollower):
         """
         if _is_trading is None:
             raise TypeError("is trading is none")
-        sql = f'select view, ID, insert_time,messageID from xueqiu.xqp where isread = 0 and is_trading = {_is_trading} order by ID asc;'
         try:
-            cursor = _db.cursor()
-            cursor.execute(sql)
-            myresult = cursor.fetchall()
-            cursor.close()
-            _db.commit()
-            return myresult
+            self.db_mgr._get_trading_trades(_is_trading)
         except Exception as e:
             with Myqq.Myqq() as myqq:
                 myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
@@ -317,11 +306,7 @@ class XueQiuFollower(BaseFollower):
         else:
             logger.info('not followed trade, mark database as done')
 
-        _db = self._make_mysql_connect()
-        cursor = _db.cursor()
-        cursor.execute('update xqp set isread = \'1\' where messageId=\'%s\';' % msg_id)
-        _db.commit()
-        _db.close()
+        self.db_mgr.mark_as_read()
 
 
     def get_users(self, userid):
@@ -339,15 +324,12 @@ class XueQiuFollower(BaseFollower):
                 my_result = off_trades
         if my_result is None:  # 如果没有离线交易
             return
-        cursor = _db.cursor()
         # ------------------
         for x in my_result:
             # x[3]: msgid
             my_msg_id = int(x[3])
             if x[3] in self.msg_id_set:  # 如果原来这个消息已经接受过， 那么在数据库里面更新这条消息
-                _sql = "update xueqiu.xqp SET `isread`=1 WHERE ID = '%d';" % x[1]
-                print(_sql)
-                cursor.execute(_sql)
+                self.db_mgr.mark_xqp_as_done(x[1])
             view = x[0]
             logger.info(view)
             try:
@@ -383,22 +365,17 @@ class XueQiuFollower(BaseFollower):
                 logger.info('交易分配完毕, 将数据库标记为已完成')
             else:
                 logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
-            _sql = "update xueqiu.xqp SET `isread`=1 WHERE ID = '%d';" % x[1]
-            print(_sql)
-            cursor.execute(_sql)
-        cursor.close()
-        _db.commit()
+            self.db_mgr.mark_xqp_as_done(x[1])
+        self.db_mgr.commit()
 
     def track_strategy_worker(self):
-        _db = self._make_mysql_connect()
+        self.db_mgr._make_mysql_connect()
         _last_time = time.time()
         while True:
             time.sleep(1)
             if time.time() - _last_time > 30:
                 logger.info("keep mysql connection")
-                _cursor = _db.cursor()
-                _cursor.execute("select * from xueqiu.xqp where id=1;")
-                _cursor.fetchall()
+                self.db_mgr.keep_alive()
                 _last_time = time.time()
             if datetime.now(pytz.timezone('Asia/Chongqing')).hour >= 15:
                 logger.info("15:00 exit(0)")
@@ -409,11 +386,11 @@ class XueQiuFollower(BaseFollower):
                 with Myqq.Myqq() as myqq:
                     myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
                 try:
-                    _db.close()
+                    self.db_mgr.close()
                 except:
                     pass
                 time.sleep(5)
-                _db = self._make_mysql_connect()
+                self.db_mgr._make_mysql_connect()
 
     def _parse_view_string(self, view, insert_t, msg_id):
         # view = view.replace('\\n', '')
@@ -582,33 +559,3 @@ class XueQiuFollower(BaseFollower):
         """
         portfolio_info = self._get_portfolio_info(portfolio_code)
         return portfolio_info["net_value"]
-
-    def _make_mysql_connect(self):
-
-        mydb = mysql.connector.connect(
-            host=self.db_host,
-            user=self.db_user,
-            password=self.db_password,
-            database=self.db_database,
-            auth_plugin=self.db_auth_plugin
-        )
-        return mydb
-
-
-    def _read_config(self):
-        mydb = self._make_mysql_connect()
-        cursor = mydb.cursor()
-        cursor.execute('select id,zh,host,cap0,cn from xueqiu.zh_conf_zhconf')
-        myresult = cursor.fetchall()
-        for x in myresult:
-            (ID, ZH, host, cap0, cn) = x
-            self.configs.append({
-                "ID": ID,
-                "ZH": ZH,
-                "host": host,
-                "cap0": cap0,
-                "cn": cn
-            })
-        cursor.close()
-        mydb.commit()
-        mydb.close()
