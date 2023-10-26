@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from numbers import Number
 import os
-from easytrader.follower import BaseFollower2b
+from easytrader.follower import BaseFollower
 from easytrader.log import logger
 from easytrader.utils.misc import parse_cookies_str
 import mysql.connector
@@ -22,7 +22,7 @@ import utils_zq.Myqq as Myqq
 import threading
 from dotenv import load_dotenv
 
-class XueQiuFollower2d(BaseFollower2b):
+class XueQiuFollower(BaseFollower):
     LOGIN_PAGE = "https://www.xueqiu.com"
     LOGIN_API = "https://xueqiu.com/snowman/login"
     TRANSACTION_API = "https://xueqiu.com/cubes/rebalancing/history.json"

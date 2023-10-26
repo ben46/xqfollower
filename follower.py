@@ -17,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'tushare'))
 import tushare as ts
 import pytz
 
-class BaseFollower2b(metaclass=abc.ABCMeta):
+class BaseFollower(metaclass=abc.ABCMeta):
     LOGIN_PAGE = ""
     LOGIN_API = ""
     TRANSACTION_API = ""
