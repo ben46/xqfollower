@@ -113,47 +113,49 @@ class BaseFollower(metaclass=abc.ABCMeta):
     def set_exp_secs(self, _s):
         self.trade_cmd_expire_seconds = _s
 
-    def execute_trade_cmd(
-        self, trade_cmd
-    ):
+    def execute_trade_cmd(self, trade_cmd):
         """
         分发交易指令到对应的 user 并执行
         """
         user_id = trade_cmd['user']
         user = self.get_users(user_id)
         now = datetime.datetime.now()
+        
+        # 使用字典解构来获取字段
+        action = trade_cmd["action"]
+        stock_code = trade_cmd["stock_code"]
+        msg_id = trade_cmd["msg_id"]
+        strategy_name = trade_cmd["strategy_name"]
         price = trade_cmd["price"]
+        amount = trade_cmd["amount"]
+
         if not self._is_number(price) or price <= 0:
             log_warning(logger, trade_cmd, now, "!price")
             return
 
-        # check amount
-        if trade_cmd["amount"] <= 0:
+        if amount <= 0:
             log_warning(logger, trade_cmd, now, "!amount")
             return
 
-        actual_price = trade_cmd["price"]
         # 删除价格作为hash的来源， 因为价格是实时获取的，不是推送的
-        data = "%s,%s,%s,%s" % (trade_cmd["action"],
-                                      trade_cmd["stock_code"],
-                                      trade_cmd["msg_id"],
-                                      trade_cmd["strategy_name"])  # 要进行加密的数据
+        data = f"{action},{stock_code},{msg_id},{strategy_name}"  # 要进行加密的数据
         my_hash = hashlib.sha256(data.encode('utf-8')).hexdigest()
+        
         args = {
-            "security": trade_cmd["stock_code"],
-            "price": actual_price,
-            "amount": trade_cmd["amount"],
+            "security": stock_code,
+            "price": price,
+            "amount": amount,
             "hash": my_hash,
         }
+        
         try:
-            response = getattr(user, trade_cmd["action"])(**args)
+            response = getattr(user, action)(**args)
         except exceptions.TradeError as e:
             trader_name = type(user).__name__
-            err_msg = "{}: {}".format(type(e).__name__, e.args)
-            log_error(logger, trade_cmd, trader_name, actual_price, err_msg)
+            err_msg = f"{type(e).__name__}: {e.args}"
+            log_error(logger, trade_cmd, trader_name, price, err_msg)
         else:
-            log_info(logger, trade_cmd, actual_price, response)
-            return
+            log_info(logger, trade_cmd, price, response)
 
     def order_transactions_sell_first(self, transactions):
         # 调整调仓记录的顺序为先卖再买
