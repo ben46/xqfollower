@@ -216,7 +216,7 @@ class XueQiuFollower(BaseFollower):
         sec = self.FROMOPEN_seconds()
         return sec == 240*60 or sec == 120*60 or sec == 0
 
-    def _get_trading_trades(self, _db, _is_trading):
+    def _get_trading_trades(self, _is_trading):
         """
         这段代码用于从数据库中获取未读的交易记录，
         根据 `_is_trading` 参数来筛选。
@@ -312,24 +312,25 @@ class XueQiuFollower(BaseFollower):
     def get_users(self, userid):
         return self._users[userid]
 
-    def _track_strategy_worker(self, _db):
+    def _track_strategy_worker(self):
         should_fetch_off_trades = 0 < self.FROMOPEN_seconds() <= 20 or 120 * 60 < self.FROMOPEN_seconds() <= 120 * 60 + 20
         my_result = None
         # 获取离线交易
         if should_fetch_off_trades:
-            off_trades = self._get_trading_trades(_db, _is_trading=0)
+            off_trades = self._get_trading_trades(_is_trading=0)
             logger.info(off_trades)
             if len(off_trades) > 0:
                 logger.info('found off trades')
                 my_result = off_trades
         if my_result is None:  # 如果没有离线交易
             return
+        mark_as_dones = []
         # ------------------
         for x in my_result:
             # x[3]: msgid
             my_msg_id = int(x[3])
             if x[3] in self.msg_id_set:  # 如果原来这个消息已经接受过， 那么在数据库里面更新这条消息
-                self.db_mgr.mark_xqp_as_done(x[1])
+                mark_as_dones.append(x[1])
             view = x[0]
             logger.info(view)
             try:
@@ -365,8 +366,7 @@ class XueQiuFollower(BaseFollower):
                 logger.info('交易分配完毕, 将数据库标记为已完成')
             else:
                 logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
-            self.db_mgr.mark_xqp_as_done(x[1])
-        self.db_mgr.commit()
+        self.db_mgr.mark_xqp_as_done(mark_as_dones)
 
     def track_strategy_worker(self):
         self.db_mgr._make_mysql_connect()
@@ -381,7 +381,7 @@ class XueQiuFollower(BaseFollower):
                 logger.info("15:00 exit(0)")
                 os.kill(os.getpid(), signal.SIGINT)
             try:
-                self._track_strategy_worker(_db)
+                self._track_strategy_worker()
             except Exception as e:
                 with Myqq.Myqq() as myqq:
                     myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)

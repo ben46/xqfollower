@@ -62,16 +62,15 @@ class DbMgr(metaclass=SingletonMeta):
         connection.commit()
         return myresult
 
-    def mark_xqp_as_done(self, id):
+    def mark_xqp_as_done(self, ids):
         connection = self.db_pool.get_connection()
         cursor = connection.cursor()
         self.cursor = cursor
         self.connection = connection
-        _sql = "update xueqiu.xqp SET `isread`=1 WHERE ID = '%d';" % id
-        print(_sql)
-        cursor.execute(_sql)
-        
-    def commit(self):
+        for id in ids:
+            _sql = "update xueqiu.xqp SET `isread`=1 WHERE ID = '%d';" % id
+            print(_sql)
+            cursor.execute(_sql)
         self.cursor.close()
         self.connection.commit()
 
