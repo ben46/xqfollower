@@ -14,6 +14,8 @@ import hashlib
 import re
 from log_warning import log_warning, log_error, log_info, log_trade
 from  expired_cmd import ExpiredCmd
+import xq_parser
+from .xq_mgr import XqMgr
 
 class BaseFollower(metaclass=abc.ABCMeta):
     LOGIN_PAGE = ""
@@ -33,6 +35,8 @@ class BaseFollower(metaclass=abc.ABCMeta):
         self.slippage: float = 0.0
         self.trader = None
         self.track_fail = 0
+        self.xq_mgr = XqMgr()
+
 
     # 在需要拉取详细的交易记录时候， 这个函数会被调用
     def track_strategy(self, strategy, name, assets_list, msg_id,  **kwargs):
@@ -72,21 +76,9 @@ class BaseFollower(metaclass=abc.ABCMeta):
                 exit()
                 
     def query_strategy_transaction(self, strategy, assets_list, **kwargs):
-        params = self.create_query_transaction_params(strategy)
-        rep = self.s.get(self.TRANSACTION_API, params=params)
-        history = rep.json()
-        tra_list = []
-        for assets in assets_list:
-            transactions = self.extract_transactions(history)
-            kwargs['assets'] = assets
-            self.project_transactions(transactions, **kwargs)
-            ret = self.order_transactions_sell_first(transactions)
-            copy_list = []
-            for tra in ret:
-                copy_list.append(tra.copy())
-            tra_list.append(copy_list)
-        return tra_list
-    
+        history = self.xq_mgr.query_strategy_transaction(strategy)
+        return xq_parser.parse_strategy_transaction(history, assets_list, kwargs)
+        
     def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
         idx = 0
         for transaction in transactions:
@@ -158,15 +150,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
             log_info(logger, trade_cmd, price, response)
 
     def order_transactions_sell_first(self, transactions):
-        # 调整调仓记录的顺序为先卖再买
-        sell_first_transactions = []
-        for transaction in transactions:
-            if transaction["action"] == "sell":
-                sell_first_transactions.insert(0, transaction)
-            else:
-                sell_first_transactions.append(transaction)
-        return sell_first_transactions
-    
+        return xq_parser.order_transactions_sell_first(transactions)
     # ==================================================
     # 
     # 
@@ -197,14 +181,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
         """
         return []
 
-    def create_query_transaction_params(self, strategy) -> dict:
-        """
-        生成用于查询调参记录的参数
-        :param strategy: 策略 id
-        :return: dict 调参记录参数
-        """
-        return {}
-
     @staticmethod
     def re_find(pattern, string, dtype=str):
         return dtype(re.search(pattern, string).group())
@@ -226,21 +202,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
     
     def login(self, user=None, password=None, **kwargs):
         pass
-
-    def _generate_headers(self):
-        headers = {
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "en-US,en;q=0.8",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/54.0.2840.100 Safari/537.36",
-            "Referer": self.WEB_REFERER,
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": self.WEB_ORIGIN,
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        }
-        return headers
 
     def check_login_success(self, rep):
         pass

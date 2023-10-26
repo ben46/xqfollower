@@ -6,9 +6,7 @@ import re
 import time
 from datetime import datetime
 from numbers import Number
-from easytrader.follower import BaseFollower
-from easytrader.log import logger
-from easytrader.utils.misc import parse_cookies_str
+from .follower import BaseFollower
 import asyncio
 import websockets
 import pytz
@@ -20,13 +18,10 @@ import utils_zq.Myqq as Myqq
 import threading
 from dotenv import load_dotenv
 from db_mgr import DbMgr
+from .log import logger
+import xq_parser
 
 class XueQiuFollower(BaseFollower):
-    LOGIN_PAGE = "https://www.xueqiu.com"
-    LOGIN_API = "https://xueqiu.com/snowman/login"
-    TRANSACTION_API = "https://xueqiu.com/cubes/rebalancing/history.json"
-    PORTFOLIO_URL = "https://xueqiu.com/p/"
-    WEB_REFERER = "https://www.xueqiu.com"
     net_val_dict = {}
     configs = []
     track_strategy_worker_db = None
@@ -42,37 +37,6 @@ class XueQiuFollower(BaseFollower):
         load_dotenv()  # 加载 .env 文件中的配置
         self.db_mgr = DbMgr()
         self.configs = self.db_mgr._read_config()
-        
-
-    def login(self, user=None, password=None, **kwargs):
-        """
-        雪球登陆， 需要设置 cookies
-        :param cookies: 雪球登陆需要设置 cookies， 具体见
-            https://smalltool.github.io/2016/08/02/cookie/
-        :return:
-        """
-        cookies = kwargs.get("cookies")
-        if cookies is None:
-            raise TypeError(
-                "雪球登陆需要设置 cookies， 具体见" "https://smalltool.github.io/2016/08/02/cookie/"
-            )
-        headers = self._generate_headers()
-        self.s.headers.update(headers)
-        print(self.LOGIN_PAGE)
-        for _ in range(0, 10):
-            print(_)
-            try:
-                self.s.get(self.LOGIN_PAGE)
-                break
-            except Exception as e:
-                print(e)
-                time.sleep(60)
-
-        cookie_dict = parse_cookies_str(cookies)
-        self.s.cookies.update(cookie_dict)
-        logger.info("登录成功")
-        print("login suc")
-
 
     def follow(  # type: ignore
         self,
@@ -445,10 +409,7 @@ class XueQiuFollower(BaseFollower):
         return tra_list
 
     def extract_strategy_name(self, strategy_url):
-        base_url = "https://xueqiu.com/cubes/nav_daily/all.json?cube_symbol={}"
-        url = base_url.format(strategy_url)
-        print(url)
-        rep = self.s.get(url)
+        rep = self.xq_mgr.extract_strategy_name(strategy_url)
         print(rep)
         info_index = 0
         self.strategy_name = rep.json()[info_index]["name"]
@@ -458,64 +419,10 @@ class XueQiuFollower(BaseFollower):
     解压历史交易(可能有两次调仓, 每次调仓有两笔交易)
     '''
     def extract_transactions(self, history):
-        if history["count"] <= 0:
-            return []
-        rebalancing_index = 0
-        raw_transactions = history["list"][rebalancing_index]["rebalancing_histories"]
-        transactions = []
-        for transaction in raw_transactions:
-            # print(transaction)
-            if transaction["price"] is None:
-                # logger.info("该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction)
-                continue
-            transactions.append(transaction)
+        return xq_parser.extract_transactions(history)
 
-        if len(transactions) == 0:
-            # logger.info("len =0, get index 1")
-            rebalancing_index = 1
-            raw_transactions = history["list"][rebalancing_index]["rebalancing_histories"]
-            for transaction in raw_transactions:
-                # print(transaction)
-                if transaction["price"] is None:
-                    # logger.info("该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction)
-                    continue
-                transactions.append(transaction)
-            # print(transactions)
-        return transactions
-
-    def create_query_transaction_params(self, strategy):
-        params = {"cube_symbol": strategy, "page": 1, "count": 2}
-        return params
-
-    # noinspection PyMethodOverriding
-    def none_to_zero(self, data):
-        if data is None:
-            return 0
-        return data
-
-    # noinspection PyMethodOverriding
     def project_transactions(self, transactions, assets):
-        for transaction in transactions:
-            # print(transaction)
-            weight_diff = self.none_to_zero(transaction["weight"]) - self.none_to_zero(
-                transaction["prev_weight"]
-            )
-            if transaction["price"] == 0:
-                logger.info("价格为0,跳过这个交易, %s" % transaction)
-                continue
-            initial_amount = abs(weight_diff) / 100 * assets / transaction["price"]
-            transaction["datetime"] = datetime.fromtimestamp(
-                transaction["created_at"] // 1000
-            )
-            transaction["stock_code"] = transaction["stock_symbol"].lower()
-            transaction["action"] = "buy" if weight_diff > 0 else "sell"
-            if transaction['stock_name'].find('转') > 0 and transaction['stock_code'][-6:].find('1') == 0:
-                __temp_amount = int(round(initial_amount, -1))
-                transaction["amount"] = __temp_amount
-            else:
-                transaction["amount"] = int(round(initial_amount, -2))
-            # print(transaction["action"],transaction["stock_code"], transaction["amount"])
-
+        xq_parser.project_transactions(transactions, assets)
 
     def _get_portfolio_info(self, portfolio_code):
         """
@@ -528,34 +435,12 @@ class XueQiuFollower(BaseFollower):
         6. 处理异常情况：如果在获取组合信息的过程中出现任何异常，会记录异常信息并等待10秒后进行重试，最多重试10次。
         此代码的主要目的是通过HTTP请求从特定URL获取组合信息，然后将其以字典形式返回。如果无法成功获取组合信息，将记录异常信息。
         """
-        url = self.PORTFOLIO_URL + portfolio_code
-        print(url)
-        for _ in range(10):
-            try:
-                resp = self.s.get(url, timeout=3)
-
-                print(resp)
-                match_info = re.search(r"(?<=SNB.cubeInfo = ).*(?=;\n)", resp.text)
-                print(match_info)
-                if match_info is None:
-                    raise Exception("cant get portfolio info, portfolio url : {}".format(url))
-                try:
-                    portfolio_info = json.loads(match_info.group())
-                except Exception as e:
-                    raise Exception("get portfolio info error: {}".format(e))
-                return portfolio_info
-            except Exception as e:
-                with Myqq.Myqq() as myqq:
-                    myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-                print('cookie可能过期了')
-                print('fetch fail try 10s later')
-                time.sleep(10)
-                pass
-
+        resp = self._get_portfolio_info(portfolio_code)
+        return xq_parser.parse_portfolio_info(resp)
 
     def _get_portfolio_net_value(self, portfolio_code):
         """
         获取组合信息
         """
         portfolio_info = self._get_portfolio_info(portfolio_code)
-        return portfolio_info["net_value"]
+        return xq_parser.get_portfolio_net_value(portfolio_info)
