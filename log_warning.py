@@ -36,3 +36,14 @@ def log_info(logger, trade_cmd, actual_price, response):
         trade_cmd["datetime"],
         response,
     )
+    
+def log_trade(logger, trade_cmd, name):
+    logger.info(
+        "策略 [%s] 发送指令到交易队列, 股票: %s 动作: %s 数量: %s 价格: %s 信号产生时间: %s",
+        name,
+        trade_cmd["stock_code"],
+        trade_cmd["action"],
+        trade_cmd["amount"],
+        trade_cmd["price"],
+        trade_cmd["datetime"],
+    )
