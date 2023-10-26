@@ -16,6 +16,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'tushare'))
 import tushare as ts
 import pytz
+from log_warning import log_warning, log_error, log_info
 
 class BaseFollower(metaclass=abc.ABCMeta):
     LOGIN_PAGE = ""
@@ -86,84 +87,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
         _new_name = self.get_cmd_cache_file_nm()
         if os.path.exists(_new_name):
             with open(_new_name, "rb") as f:
-                self.expired_cmds = pickle.load(f)
-
-    def get_stknm_cache_file_nm(self):
-        return "stk_nm_%s" % datetime.datetime.now(pytz.timezone('Asia/Chongqing')).strftime('%Y_%m_%d')
-
-    def fetch_code_nm(self):
-        logger.info('获取股票名称和股票价格的df...')
-        if self.skn_nm_cache is not None:
-            return
-        if os.path.exists(self.get_stknm_cache_file_nm()):
-            print('文件本地存在')
-            with open(self.get_stknm_cache_file_nm(), "rb") as f:
-                self.skn_nm_cache = pickle.load(f)
-                # print(self.skn_nm_cache)
-        else:
-            self.skn_nm_cache = ts.get_today_all()
-            with open(self.get_stknm_cache_file_nm(), "wb") as f:
-                pickle.dump(self.skn_nm_cache, f)
-
-    def _get_idx_by_nm(self, stk_name, kw='st'):
-        for i in range(self.skn_nm_cache.shape[0]):
-            db_nm = self.skn_nm_cache.iloc[i]['name']
-            input_nm = stk_name.lower().replace(kw.lower(), '').replace(" ", "").replace("*", "").replace("-", "")
-            if db_nm.find(input_nm) >= 0:
-                return i
-        return 999999
-
-    def _get_idx_by_nm2(self, stk_name):
-        for i in range(self.skn_nm_cache.shape[0]):
-            _stk_nm = self.skn_nm_cache.iloc[i]['name']
-            if _stk_nm.find("Ａ") >= 0:
-                tmp = stk_name.split("Ａ")[0].replace(" ", "")
-                if _stk_nm.find(tmp):
-                    return i
-        return -1
-
-    def get_stk_row(self, stk_code):
-        try:
-            stk_code = stk_code[-6:]
-            return self.skn_nm_cache[self.skn_nm_cache['code'] == stk_code].iloc[0]
-        except Exception as e:
-            logger.info("获取%s代码出错" % stk_code)
-            print(e)
-
-    def _get_row_by_nm(self, stk_name):
-        if stk_name.find('-U') >= 0:
-            print(stk_name)
-            return self.skn_nm_cache.iloc[self._get_idx_by_nm(stk_name, kw='-U')]
-        if stk_name.find('st') >= 0 or stk_name.find('ST') >= 0:
-            return self.skn_nm_cache.iloc[self._get_idx_by_nm(stk_name)]
-        if stk_name.find('A') >= 0:
-            return self.skn_nm_cache.iloc[self._get_idx_by_nm2(stk_name)]
-        if stk_name.find('XD') >= 0:
-            return self.skn_nm_cache.iloc[self._get_idx_by_nm(stk_name, kw='xd')]
-        if stk_name.find('XR') >= 0:
-            return self.skn_nm_cache.iloc[self._get_idx_by_nm(stk_name, kw='xr')]
-        return self.skn_nm_cache[self.skn_nm_cache['name'] == stk_name].iloc[0]
-
-    def get_code(self, stk_name):
-        try:
-            return self._get_row_by_nm(stk_name)['code']
-        except Exception as e:
-            logger.info("获取%s代码出错" % stk_name)
-            print(e)
-
-    def get_price(self, stk_name):
-        try:
-            return self._get_row_by_nm(stk_name)['trade']
-        except Exception as e:
-            logger.info("获取%s代码出错" % stk_name)
-            print(e)
-        return 0
-
-    def get_stk_all(self):
-        return self.skn_nm_cache
-
-
-
+                self.expired_cmds = pickle.load(f) 
 
     @staticmethod
     def warp_list(value):
@@ -296,51 +220,15 @@ class BaseFollower(metaclass=abc.ABCMeta):
         """
         user_id = trade_cmd['user']
         user = self.get_users(user_id)
-        # check expire
         now = datetime.datetime.now()
-        expire = (now - trade_cmd["datetime"]).total_seconds()
-        # 5. 取消超时（因为盘后的推送会被误以为是超时交易）
-        # if expire > self.trade_cmd_expire_seconds:
-        #     logger.warning(
-        #         "策略 [%s] 指令(股票: %s 动作: %s 数量: %s 价格: %s)超时，指令产生时间: %s 当前时间: %s, 超过设置的最大过期时间 %s 秒, 被丢弃",
-        #         trade_cmd["strategy_name"],
-        #         trade_cmd["stock_code"],
-        #         trade_cmd["action"],
-        #         trade_cmd["amount"],
-        #         trade_cmd["price"],
-        #         trade_cmd["datetime"],
-        #         now,
-        #         self.trade_cmd_expire_seconds,
-        #     )
-        #     return
-
-        # check price
         price = trade_cmd["price"]
         if not self._is_number(price) or price <= 0:
-            logger.warning(
-                "策略 [%s] 指令(股票: %s 动作: %s 数量: %s 价格: %s)超时，指令产生时间: %s 当前时间: %s, 价格无效 , 被丢弃",
-                trade_cmd["strategy_name"],
-                trade_cmd["stock_code"],
-                trade_cmd["action"],
-                trade_cmd["amount"],
-                trade_cmd["price"],
-                trade_cmd["datetime"],
-                now,
-            )
+            log_warning(logger, trade_cmd, now, "!price")
             return
 
         # check amount
         if trade_cmd["amount"] <= 0:
-            logger.warning(
-                "策略 [%s] 指令(股票: %s 动作: %s 数量: %s 价格: %s)超时，指令产生时间: %s 当前时间: %s, 买入股数无效 , 被丢弃",
-                trade_cmd["strategy_name"],
-                trade_cmd["stock_code"],
-                trade_cmd["action"],
-                trade_cmd["amount"],
-                trade_cmd["price"],
-                trade_cmd["datetime"],
-                now,
-            )
+            log_warning(logger, trade_cmd, now, "!amount")
             return
 
         actual_price = trade_cmd["price"]
@@ -361,28 +249,9 @@ class BaseFollower(metaclass=abc.ABCMeta):
         except exceptions.TradeError as e:
             trader_name = type(user).__name__
             err_msg = "{}: {}".format(type(e).__name__, e.args)
-            logger.error(
-                "%s 执行 策略 [%s] 指令(股票: %s 动作: %s 数量: %s 价格(考虑滑点): %s 指令产生时间: %s) 失败, 错误信息: %s",
-                trader_name,
-                trade_cmd["strategy_name"],
-                trade_cmd["stock_code"],
-                trade_cmd["action"],
-                trade_cmd["amount"],
-                actual_price,
-                trade_cmd["datetime"],
-                err_msg,
-            )
+            log_error(logger, trade_cmd, trader_name, actual_price, err_msg)
         else:
-            logger.info(
-                "策略 [%s] 指令(股票: %s 动作: %s 数量: %s 价格(考虑滑点): %s 指令产生时间: %s) 执行成功, 返回: %s",
-                trade_cmd["strategy_name"],
-                trade_cmd["stock_code"],
-                trade_cmd["action"],
-                trade_cmd["amount"],
-                actual_price,
-                trade_cmd["datetime"],
-                response,
-            )
+            log_info(logger, trade_cmd, actual_price, response)
             return
 
     def query_strategy_transaction(self, strategy, assets_list, **kwargs):
