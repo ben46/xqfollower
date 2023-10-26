@@ -38,10 +38,10 @@ class XueQiuFollower(BaseFollower):
         self._users = None
         self.fetch_code_nm()
         # assert self.get_code("夜光明") == '873527'
-        self._read_config()
         self.msg_id_set_lock = threading.Lock()
         load_dotenv()  # 加载 .env 文件中的配置
         self.db_mgr = DbMgr()
+        self.configs = self.db_mgr._read_config()
         
 
     def login(self, user=None, password=None, **kwargs):
