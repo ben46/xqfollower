@@ -13,19 +13,19 @@ from easytrader.log import logger
 import hashlib
 import re
 from log_warning import log_warning, log_error, log_info, log_trade
+from  expired_cmd import ExpiredCmd
 
 class BaseFollower(metaclass=abc.ABCMeta):
     LOGIN_PAGE = ""
     LOGIN_API = ""
     TRANSACTION_API = ""
-    CMD_CACHE_FILE = "cmd_cache.pk"
     WEB_REFERER = ""
     WEB_ORIGIN = ""
     skn_nm_cache = None
     trade_cmd_expire_seconds=120
     def __init__(self):
         self.trade_queue = queue.Queue()
-        self.expired_cmds = set()
+        self.cmd_mgr = ExpiredCmd()
 
         self.s = requests.Session()
         self.s.verify = False
@@ -48,12 +48,12 @@ class BaseFollower(metaclass=abc.ABCMeta):
                 "price": transaction["price"],
                 "datetime": transaction["datetime"],
             }
-            if self.is_cmd_expired(trade_cmd):
+            if self.cmd_mgr.is_cmd_expired(trade_cmd):
                 logger.info('指令与缓存指令冲突')
                 continue
             log_trade(logger, trade_cmd, name)
             self.execute_trade_cmd(trade_cmd)
-            self.add_cmd_to_expired_cmds(trade_cmd)
+            self.cmd_mgr.add_cmd_to_expired_cmds(trade_cmd)
             idx += 1
         return idx
 
@@ -211,18 +211,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
     @staticmethod
     def re_search(pattern, string, dtype=str):
         return dtype(re.search(pattern,string).group(1))
-    
-    def is_cmd_expired(self, cmd):
-        key = self.generate_expired_cmd_key(cmd)
-        return key in self.expired_cmds
-
-    def add_cmd_to_expired_cmds(self, cmd):
-        key = self.generate_expired_cmd_key(cmd)
-        self.expired_cmds.add(key)
-
-        with open(self.get_cmd_cache_file_nm(), "wb") as f:
-            pickle.dump(self.expired_cmds, f)
-
 
     @staticmethod
     def _is_number(s):
@@ -276,16 +264,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
     def getStrategy(self):
         return self.strategy
 
-    def get_cmd_cache_file_nm(self):
-        _new_name = '%s' % (self.CMD_CACHE_FILE)
-        return _new_name
-
-    def load_expired_cmd_cache(self):
-        _new_name = self.get_cmd_cache_file_nm()
-        if os.path.exists(_new_name):
-            with open(_new_name, "rb") as f:
-                self.expired_cmds = pickle.load(f) 
-
     @staticmethod
     def warp_list(value):
         if not isinstance(value, list):
@@ -298,12 +276,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
 
     def extract_strategy_name(self, strategy_url):
         pass
-    @staticmethod
-    def generate_expired_cmd_key(cmd):
-        return "{}_{}_{}_{}_{}".format(
-            cmd["strategy_name"],
-            cmd["user"],
-            cmd["stock_code"],
-            cmd["action"],
-            cmd["msg_id"],
-        )
+
+    def load_expired_cmd_cache(self):
+        self.cmd_mgr.load_expired_cmd_cache()
