@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
-_logger_nm = "easytrader"
+_logger_nm = "xqfollower"
 logger = logging.getLogger(_logger_nm)
 logger.setLevel(logging.INFO)
 fmt = logging.Formatter(
