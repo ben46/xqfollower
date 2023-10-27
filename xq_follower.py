@@ -128,9 +128,7 @@ class XueQiuFollower(BaseFollower):
     def extract_strategy_id(strategy_url):
         return strategy_url
 
-    def is_off_trading_hour(self):
-        sec = self.FROMOPEN_seconds()
-        return sec == 240*60 or sec == 120*60 or sec == 0
+    
 
     def _get_trading_trades(self, _is_trading):
         """
@@ -153,7 +151,7 @@ class XueQiuFollower(BaseFollower):
         body_content = json.loads(body_content)
         if body_content["type"] == 1:
             logger.info("new msg arrived, %s" % body_content)
-            if self.is_off_trading_hour():
+            if time_utils.is_off_trading_hour():
                 # 非交易时间的, 暂时不处理, 等交易时间再处理
                 logger.info("not trading time%s" % body_content)
                 return

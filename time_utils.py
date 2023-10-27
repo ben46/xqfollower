@@ -31,3 +31,7 @@ def FROMOPEN_seconds():
     
 def should_exit():
     return datetime.now(pytz.timezone('Asia/Chongqing')).hour >= 15
+
+def is_off_trading_hour():
+    sec = FROMOPEN_seconds()
+    return sec == 240*60 or sec == 120*60 or sec == 0
