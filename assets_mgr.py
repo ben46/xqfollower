@@ -12,7 +12,7 @@ def calculate_total_assets(strategy_id, configs, net_value):
                     raise ValueError("雪球总资产不能小于1000元，当前预设值 {}".format(conf["total_assets"]))
     return configs
 
-def get_assets_list( zh_id, users,configs ):
+def get_assets_list( zh_id, user_domains,configs ):
     """
     这段代码用于查找并提取特定策略下的资产信息，
     然后将这些资产信息存储在一个列表中，
@@ -20,16 +20,16 @@ def get_assets_list( zh_id, users,configs ):
     """
     reval = []
     idx=-1
-    for user in users:
+    for domain in user_domains:
         idx+=1
         for conf in configs:
-            if conf["ZH"] == zh_id and conf['host'] == user.get_domain():
+            if conf["ZH"] == zh_id and conf['host'] == domain:
                 print(conf)
                 if "total_assets" not in conf:
                     print("not here")
                     print(conf)
                 else:
-                    logger.info(f'{idx}, {user.get_domain()}, {zh_id}, {conf["total_assets"]}')
+                    logger.info(f'{idx}, {domain}, {zh_id}, {conf["total_assets"]}')
                     reval.append(conf["total_assets"])
                 break
     return reval

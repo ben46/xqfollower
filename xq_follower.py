@@ -106,7 +106,8 @@ class XueQiuFollower(BaseFollower):
         然后将这些资产信息存储在一个列表中，
         以供进一步处理或分析。如果某些配置项不包含 "total_assets" 字段，它也会进行相应的输出。
         """
-        return assets_mgr.get_assets_list(zh_id, self._users, self.configs)
+        user_domains = [u.get_domain() for u in self.users]
+        return assets_mgr.get_assets_list(zh_id, user_domains, self.configs)
 
     def calculate_assets(self, strategy_id):
         """
