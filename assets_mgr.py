@@ -32,24 +32,21 @@ def calculate_total_assets(strategy_id, configs, net_value):
     # 返回新的配置列表
     return new_configs
 
-def get_assets_list( zh_id, user_domains,configs ):
+def get_assets_list(zh_id, user_domains, configs):
     """
     这段代码用于查找并提取特定策略下的资产信息，
     然后将这些资产信息存储在一个列表中，
     以供进一步处理或分析。如果某些配置项不包含 "total_assets" 字段，它也会进行相应的输出。
     """
     reval = []
-    idx=-1
-    for domain in user_domains:
-        idx+=1
+    for idx, domain in enumerate(user_domains):
         for conf in configs:
             if conf["ZH"] == zh_id and conf['host'] == domain:
-                print(conf)
                 if "total_assets" not in conf:
-                    print("not here")
-                    print(conf)
+                    logger.info(f'Not found in {idx}, {domain}, {zh_id}')
                 else:
-                    logger.info(f'{idx}, {domain}, {zh_id}, {conf["total_assets"]}')
+                    logger.info(f'Found in {idx}, {domain}, {zh_id}, {conf["total_assets"]}')
                     reval.append(conf["total_assets"])
                 break
+
     return reval
