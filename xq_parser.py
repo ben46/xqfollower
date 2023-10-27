@@ -98,3 +98,40 @@ def parse_strategy_transaction(self, history, assets_list, **kwargs):
             copy_list.append(tra.copy())
         tra_list.append(copy_list)
     return tra_list
+
+def parse_view_string(view, insert_t, msg_id):
+    myjson = json.loads(view, strict=False)
+    strategy_name = re.findall("「(.+)」", myjson['title'])[0]
+    splits = re.split('[买卖]', myjson['text'])
+    trans_list = []
+    for sp in splits[1:]:
+        stk_nm = sp[1:].split("：")[0]
+        pcts = re.findall(r"\d*\.?\d+", sp)
+        print(stk_nm)
+        trans_list.append({
+            "created_at": insert_t * 1000,
+            "msg_id": msg_id,
+            "weight": float(pcts[1]),
+            "prev_weight": float(pcts[0]),
+            "stock_name": stk_nm,
+            "strategy_name": strategy_name
+        })
+    return trans_list
+
+def parse_view_stk_num(view):
+    myjson = json.loads(view, strict=False)
+    stok = re.findall("调整了 ([0-9]+)", myjson['text'])
+    if len(stok) > 0:
+        return int(stok[0])
+    return 0
+
+def parse_view_strategy_name(view):
+    myjson = json.loads(view, strict=False)
+    strategy_name = re.findall("「(.+)」", myjson['title'])[0]
+    return strategy_name
+
+def parse_view_zuhe_id(view):
+    myjson = json.loads(view, strict=False)
+    results = re.findall("ZH[0-9]+", myjson['url'])
+    zuhe_id = results[0]
+    return zuhe_id

@@ -334,43 +334,25 @@ class XueQiuFollower(BaseFollower):
                 self.db_mgr._make_mysql_connect()
 
     def _parse_view_string(self, view, insert_t, msg_id):
-        # view = view.replace('\\n', '')
-        # print(view)
-        # print(type(view))
-        myjson = json.loads(view, strict=False)
-        stok = re.findall("调整了 ([0-9]+)", myjson['text'])
-        strategy_name = re.findall("「(.+)」", myjson['title'])[0]
-        results = re.findall("ZH[0-9]+", myjson['url'])
-        zuhe_id = results[0]
-        splits = re.split('[买卖]', myjson['text'])
-        trans_list = []
-        for sp in splits[1:]:
-            stk_nm = sp[1:].split("：")[0]
-            # pcts = re.findall("([0-9]\d{0,1}|100[%]{0,1}$)(\.\d{1,2})?%?", sp)
-            # pcts = re.findall(r"\b(?<!\.)(?!0+(?:\.0+)?%)(?:\d|[1-9]\d|100)(?:(?<!100)\.\d+)?%", sp)
-            # pcts = re.findall(r"([0-9]*\.?[0-9]*)\s*%", sp)
-            pcts = re.findall(r"\d*\.?\d+", sp)
-            print(stk_nm)
+        zuhe_id = xq_parser.parse_view_zuhe_id(view)   
+        strategy_name = xq_parser.parse_view_strategy_name(view)
+        stok_num = xq_parser.parse_view_stk_num(view)
+        trans_list = xq_parser.parse_view_string(view, insert_t, msg_id)
+        for tran in trans_list:
+            stk_nm = tran["stock_name"]
             code = self.get_code(stk_nm)
             close = self.get_price(stk_nm)
             if close == 0:
                 logger.info(f"{stk_nm}价格获取失败")
-                continue
-            trans_list.append({
-                "created_at": insert_t * 1000,
-                "msg_id": msg_id,
-                "weight": float(pcts[1]),
-                "prev_weight": float(pcts[0]),
-                "price": close,
-                "stock_name": stk_nm,
-                "stock_symbol": code,
-                "strategy_name": strategy_name
-            })
-        if len(stok) > 0:
-            return trans_list, zuhe_id, int(stok[0]), strategy_name
+                tran["price"] = 0
+                tran["stock_symbol"] = 0
+            else:
+                tran["price"] = close
+                tran["stock_symbol"] = code
+        if stok_num > 0:
+            return trans_list, zuhe_id, stok_num, strategy_name
         else:
             return [], zuhe_id, 0, strategy_name
-
 
     def _format_transaction(self, transactions, assets_list, **kwargs):
         tra_list = []
