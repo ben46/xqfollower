@@ -229,59 +229,73 @@ class XueQiuFollower(BaseFollower):
     def FROMOPEN_seconds():
         return time_utils.FROMOPEN_seconds()
 
-    def _track_strategy_worker(self):
-        my_result = None
-        # 获取离线交易
+    def _fetch_off_trades(self):
         if time_utils.should_fetch_off_trades():
             off_trades = self._get_trading_trades(_is_trading=0)
             logger.info(off_trades)
-            if len(off_trades) > 0:
+            if off_trades and len(off_trades) >0:
                 logger.info('found off trades')
-                my_result = off_trades
-        if my_result is None:  # 如果没有离线交易
+                return off_trades
+        return None
+    
+    def _process_trade_data(self, trade):
+        view = trade[0]
+        logger.info(view)
+        try:
+            insert_time = float(trade[2])
+            msg_id = int(trade[3])
+            transactions, zh_id, num, strategy_name = self._parse_view_string(view, insert_time, msg_id)
+        except Exception as e:
+            logger.warning(e)
             return
-        mark_as_dones = []
-        # ------------------
-        for x in my_result:
-            # x[3]: msgid
-            my_msg_id = int(x[3])
-            if x[3] in self.msg_id_set:  # 如果原来这个消息已经接受过， 那么在数据库里面更新这条消息
-                mark_as_dones.append(x[1])
-            view = x[0]
-            logger.info(view)
-            try:
-                # x[2]: insert time
-                transactions, zh_id, num, strategy_name = self._parse_view_string(view, float(x[2]), my_msg_id)
-            except:
-                continue
-            logger.info('parse ok:')
-            logger.info(transactions)
-            logger.info('生成用户资产map...')
-            assets_list = self._get_assets_list(zh_id)
-            logger.info(assets_list)
-            if len(assets_list) != 0:
-                # todo 这里可能存在多次推送导致数据库来回改了好多次从而信息不准确
-                if num > 3:
-                    # 需要远程重新获取交易记录
-                    logger.info('调仓数目超过4条,需要爬虫获取详细信息...')
-                    self.track_strategy(zh_id, strategy_name, assets_list, my_msg_id)
-                else:
-                    # 直接处理数据库里面的交易记录， 这里的流程和得到socket推送应该差不多
-                    logger.info('正在整理数据格式...')
-                    try:
-                        tran_list = self._format_transaction(transactions, assets_list)
-                        logger.info(tran_list)
-                        print(self._users)
-                        if len(tran_list) == len(self._users):
-                            for user_id in range(len(self._users)):
-                                logger.info('正在处理用户%d的交易数据...' % (user_id))
-                                logger.info(tran_list[user_id])
-                                self.deal_trans(user_id, tran_list[user_id], zh_id, strategy_name, my_msg_id)
-                    except Exception as e:
-                        logger.warning(e)
-                logger.info('交易分配完毕, 将数据库标记为已完成')
+
+        logger.info('parse ok:')
+        logger.info(transactions)
+        logger.info('生成用户资产map...')
+        assets_list = self._get_assets_list(zh_id)
+        logger.info(assets_list)
+        rets = []
+        if len(assets_list) != 0:
+            if num > 3:
+                logger.info('调仓数目超过4条,需要爬虫获取详细信息...')
+                self.track_strategy(zh_id, strategy_name, assets_list, msg_id)
             else:
-                logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
+                logger.info('正在整理数据格式...')
+                rets = self._process_transactions(transactions, assets_list)
+            logger.info('交易分配完毕, 将数据库标记为已完成')
+        else:
+            logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
+        for ret in rets:
+            self.deal_trans(ret["uid"], ret["trans"], zh_id, strategy_name, msg_id)
+            
+    def _process_transactions(self, transactions, assets_list):
+        rets = []
+        try:
+            tran_list = self._format_transaction(transactions, assets_list)
+            logger.info(tran_list)
+            print(self._users)
+            if len(tran_list) == len(self._users):
+                for user_id in range(len(self._users)):
+                    logger.info('正在处理用户%d的交易数据...' % (user_id))
+                    logger.info(tran_list[user_id])
+                    rets.append({
+                        "uid":user_id, 
+                        "trans":tran_list[user_id]
+                    })
+        except Exception as e:
+            logger.warning(e)
+        return rets
+          
+    def _track_strategy_worker(self):
+        off_trades = self._fetch_off_trades()
+        if off_trades is None: return
+        mark_as_dones = []
+        for trade in off_trades:
+            msg_id = int(trade[3])
+            if msg_id in self.msg_id_set:
+                mark_as_dones.append(trade[1])
+            else:
+                self._process_trade_data(trade)
         self.db_mgr.mark_xqp_as_done(mark_as_dones)
 
     def track_strategy_worker(self):
