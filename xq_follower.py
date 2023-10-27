@@ -374,17 +374,7 @@ class XueQiuFollower(BaseFollower):
         xq_parser.project_transactions(transactions, assets)
 
     def _get_portfolio_info(self, portfolio_code):
-        """
-        这段代码的功能是获取指定组合（portfolio）的信息。具体功能包括：
-        1. 构建请求URL：根据给定的组合代码（portfolio_code）构建用于获取组合信息的URL。
-        2. 发送HTTP请求：使用Python的 requests 库发送HTTP GET请求，以获取与给定URL相关的响应。
-        3. 从响应中提取组合信息：通过使用正则表达式，从HTTP响应的文本内容中提取组合信息（JSON格式数据），该信息通常包含在文本中的 "SNB.cubeInfo = " 之后，以及分号之前的部分。
-        4. 解析JSON数据：尝试将提取的JSON数据解析为Python字典。如果解析失败，会引发异常。
-        5. 返回组合信息：如果成功获取并解析组合信息，将其作为字典返回。
-        6. 处理异常情况：如果在获取组合信息的过程中出现任何异常，会记录异常信息并等待10秒后进行重试，最多重试10次。
-        此代码的主要目的是通过HTTP请求从特定URL获取组合信息，然后将其以字典形式返回。如果无法成功获取组合信息，将记录异常信息。
-        """
-        resp = self._get_portfolio_info(portfolio_code)
+        resp = self.xq_mgr._get_portfolio_info(portfolio_code)
         return xq_parser.parse_portfolio_info(resp)
 
     def _get_portfolio_net_value(self, portfolio_code):
