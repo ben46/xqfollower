@@ -28,3 +28,6 @@ def FROMOPEN_seconds():
         if now.timestamp() > CLOSE_PM.timestamp():
             return 240*60
         return 0
+    
+def should_exit():
+    return datetime.now(pytz.timezone('Asia/Chongqing')).hour >= 15

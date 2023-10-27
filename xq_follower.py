@@ -20,6 +20,7 @@ from db_mgr import DbMgr
 from .log import logger
 import xq_parser
 import time_utils
+import assets_mgr
 
 class XueQiuFollower(BaseFollower):
     net_val_dict = {}
@@ -105,21 +106,7 @@ class XueQiuFollower(BaseFollower):
         然后将这些资产信息存储在一个列表中，
         以供进一步处理或分析。如果某些配置项不包含 "total_assets" 字段，它也会进行相应的输出。
         """
-        reval = []
-        idx=-1
-        for user in self._users:
-            idx+=1
-            for conf in self.configs:
-                if conf["ZH"] == zh_id and conf['host'] == user.get_domain():
-                    print(conf)
-                    if "total_assets" not in conf:
-                        print("not here")
-                        print(conf)
-                    else:
-                        logger.info(f'{idx}, {user.get_domain()}, {zh_id}, {conf["total_assets"]}')
-                        reval.append(conf["total_assets"])
-                    break
-        return reval
+        return assets_mgr.get_assets_list(zh_id, self._users, self.configs)
 
     def calculate_assets(self, strategy_id):
         """
@@ -135,20 +122,11 @@ class XueQiuFollower(BaseFollower):
             net_value = self.net_val_dict[strategy_id]
         logger.info("%s net val: %.2f" % (strategy_id, net_value))
         logger.info("calculate portofolio fund managetment...")
-        for conf in self.configs:
-            if conf["ZH"] == strategy_id and ("total_assets" not in conf or conf["total_assets"] is None or conf["total_assets"] == 0):
-                    conf["total_assets"] = float(conf["cap0"]) * net_value
-                    logger.info(conf)
-                    if not isinstance(conf["total_assets"], Number):
-                        raise TypeError("input assets type must be number(int, float)")
-                    if conf["total_assets"] < 1000.0:
-                        raise ValueError("雪球总资产不能小于1000元，当前预设值 {}".format(conf["total_assets"]))
+        self.configs = assets_mgr.calculate_total_assets(strategy_id, self.configs, net_value)
 
     @staticmethod
     def extract_strategy_id(strategy_url):
         return strategy_url
-
-    
 
     def is_off_trading_hour(self):
         sec = self.FROMOPEN_seconds()
@@ -318,7 +296,7 @@ class XueQiuFollower(BaseFollower):
                 logger.info("keep mysql connection")
                 self.db_mgr.keep_alive()
                 _last_time = time.time()
-            if datetime.now(pytz.timezone('Asia/Chongqing')).hour >= 15:
+            if time_utils.should_exit():
                 logger.info("15:00 exit(0)")
                 os.kill(os.getpid(), signal.SIGINT)
             try:
