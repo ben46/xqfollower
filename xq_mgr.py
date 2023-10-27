@@ -14,34 +14,36 @@ class XqMgr:
         pass
         self.logger = logger
     
-    def login(self, user=None, password=None, **kwargs):
+    def login(self, **kwargs):
         """
-        雪球登陆， 需要设置 cookies
-        :param cookies: 雪球登陆需要设置 cookies， 具体见
-            https://smalltool.github.io/2016/08/02/cookie/
-        :return:
+        雪球登录，需要设置 cookies。具体见 https://smalltool.github.io/2016/08/02/cookie/
+        :param cookies: 雪球登录所需的 cookies 字符串
+        :return: None
         """
         cookies = kwargs.get("cookies")
+
         if cookies is None:
-            raise TypeError(
-                "雪球登陆需要设置 cookies， 具体见" "https://smalltool.github.io/2016/08/02/cookie/"
-            )
+            raise ValueError("雪球登录需要设置 cookies，具体见 https://smalltool.github.io/2016/08/02/cookie/")
+        
+        # 设置请求头
         headers = self._generate_headers()
         self.s.headers.update(headers)
-        print(self.LOGIN_PAGE)
-        for _ in range(0, 10):
-            print(_)
+        
+        # 尝试登录，最多重试 10 次
+        for _ in range(10):
+            print(f"Attempt {_ + 1}")
             try:
                 self.s.get(self.LOGIN_PAGE)
                 break
             except Exception as e:
-                print(e)
+                print(f"Error: {e}")
                 time.sleep(60)
 
+        # 更新 cookies
         cookie_dict = parse_cookies_str(cookies)
         self.s.cookies.update(cookie_dict)
+
         logger.info("登录成功")
-        print("login suc")        
 
     def extract_strategy_name(self, strategy_url):
         base_url = "https://xueqiu.com/cubes/nav_daily/all.json?cube_symbol={}"
@@ -58,8 +60,9 @@ class XqMgr:
                 resp = self.s.get(url, timeout=3)
                 return resp
             except Exception as e:
-                with Myqq.Myqq() as myqq:
-                    myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
+                # TODO 
+                # send exception email through flask api
+                # myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
                 print('cookie可能过期了')
                 print('fetch fail try 10s later')
                 time.sleep(10)
