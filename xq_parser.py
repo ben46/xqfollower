@@ -100,22 +100,34 @@ def parse_strategy_transaction(self, history, assets_list, **kwargs):
     return tra_list
 
 def parse_view_string(view, insert_t, msg_id):
-    myjson = json.loads(view, strict=False)
-    strategy_name = re.findall("「(.+)」", myjson['title'])[0]
-    splits = re.split('[买卖]', myjson['text'])
+    data = json.loads(view, strict=False)
+    title = data['title']
+    strategy_name = re.findall("「(.+)」", title)[0]
+
+    text = data['text']
+    splits = re.split('[买卖]', text)
+
     trans_list = []
+    pcts_pattern = re.compile(r"\d*\.?\d+")
+
     for sp in splits[1:]:
-        stk_nm = sp[1:].split("：")[0]
-        pcts = re.findall(r"\d*\.?\d+", sp)
-        print(stk_nm)
+        sp_parts = sp[1:].split("：")
+        stock_name = sp_parts[0]
+        pcts = pcts_pattern.findall(sp)
+
+        created_at = insert_t * 1000
+        weight = float(pcts[1])
+        prev_weight = float(pcts[0])
+
         trans_list.append({
-            "created_at": insert_t * 1000,
+            "created_at": created_at,
             "msg_id": msg_id,
-            "weight": float(pcts[1]),
-            "prev_weight": float(pcts[0]),
-            "stock_name": stk_nm,
+            "weight": weight,
+            "prev_weight": prev_weight,
+            "stock_name": stock_name,
             "strategy_name": strategy_name
         })
+
     return trans_list
 
 def parse_view_stk_num(view):
