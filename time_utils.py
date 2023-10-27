@@ -35,3 +35,6 @@ def should_exit():
 def is_off_trading_hour():
     sec = FROMOPEN_seconds()
     return sec == 240*60 or sec == 120*60 or sec == 0
+
+def should_fetch_off_trades():
+    return 0 < FROMOPEN_seconds() <= 20 or 120 * 60 < FROMOPEN_seconds() <= 120 * 60 + 20

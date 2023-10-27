@@ -230,10 +230,9 @@ class XueQiuFollower(BaseFollower):
         return time_utils.FROMOPEN_seconds()
 
     def _track_strategy_worker(self):
-        should_fetch_off_trades = 0 < self.FROMOPEN_seconds() <= 20 or 120 * 60 < self.FROMOPEN_seconds() <= 120 * 60 + 20
         my_result = None
         # 获取离线交易
-        if should_fetch_off_trades:
+        if time_utils.should_fetch_off_trades():
             off_trades = self._get_trading_trades(_is_trading=0)
             logger.info(off_trades)
             if len(off_trades) > 0:
