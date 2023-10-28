@@ -311,21 +311,14 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
                 logger.info(f"{mytrack_times}. 拉取详细的调仓记录")
 
                 # 从网络获取交易记录
-                tran_list = self.query_strategy_transaction(
-                    strategy, assets_list, **kwargs
-                )  # 返回值：多个用户组成的二维数组交易条目
-
+                tran_list = self.query_strategy_transaction(strategy, assets_list, **kwargs)
                 expire = (datetime.datetime.now() - tran_list[0][0]['datetime']).total_seconds()
 
-                user_id = 0
-                # 循环不同的用户
-                for transactions in tran_list:
-                    # 执行交易指令，因为我们并没有制定msgid， 所以这里会自动生成一个时间戳作为msgid
+                for user_id, transactions in enumerate(tran_list):
                     self.deal_trans(user_id, transactions, strategy, name, msg_id, **kwargs)
-                    user_id += 1
+
                 if expire < self.trade_cmd_expire_seconds:
                     break
-            # pylint: disable=broad-except
             except Exception as e:
                 logger.exception("%d: 无法获取策略 %s 调仓信息, 错误: %s, 跳过此次调仓查询", self.track_fail, name, e)
                 self.track_fail += 1
