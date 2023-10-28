@@ -2,25 +2,29 @@
 
 import logging
 import inspect
+import os
 
 class CustomLogger(logging.Logger):
     def info(self, msg, *args, **kwargs):
         current_function_name = inspect.currentframe().f_back.f_code.co_name
-        msg = f"({current_function_name}) {msg}"
+        current_file_name = os.path.basename(inspect.currentframe().f_back.f_code.co_filename)
+        line_number = inspect.currentframe().f_back.f_lineno
+        msg = f"({current_function_name} in {current_file_name}:{line_number}) {msg}"
         super().info(msg, *args, **kwargs)
         
     def warning(self, msg, *args, **kwargs):
         current_function_name = inspect.currentframe().f_back.f_code.co_name
-        msg = f"({current_function_name}) {msg}"
+        current_file_name = os.path.basename(inspect.currentframe().f_back.f_code.co_filename)
+        line_number = inspect.currentframe().f_back.f_lineno
+        msg = f"({current_function_name} in {current_file_name}:{line_number}) {msg}"
         super().warning(msg, *args, **kwargs)
         
     def error(self, msg, *args, **kwargs):
         current_function_name = inspect.currentframe().f_back.f_code.co_name
-        msg = f"({current_function_name}) {msg}"
-        super().error(msg, *args, **kwargs)
-        
-        
-        
+        current_file_name = os.path.basename(inspect.currentframe().f_back.f_code.co_filename)
+        line_number = inspect.currentframe().f_back.f_lineno
+        msg = f"({current_function_name} in {current_file_name}:{line_number}) {msg}"
+        super().error(msg, *args, **kwargs)   
 
 # 设置日志记录器的名称
 _logger_nm = "xqfollower"
@@ -31,7 +35,7 @@ logger.setLevel(logging.INFO)
 
 # 定义日志格式
 fmt = logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(filename)s %(lineno)s: %(message)s"
+    "%(asctime)s [%(levelname)s]: %(message)s"
 )
 
 # 创建日志文件处理器，以追加模式写入日志文件
