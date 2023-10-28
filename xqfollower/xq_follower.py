@@ -20,7 +20,7 @@ import threading
 import time
 import exceptions
 from .log import logger
-from log_warning import log_warning, log_error, log_info, log_trade
+from xqfollower.log_util import log_warning, log_error, log_info, log_trade
 from  expired_cmd import ExpiredCmd
 import xq_parser
 from .xq_mgr import XqMgr
