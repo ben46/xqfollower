@@ -54,7 +54,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
     def __init__(self, **kwargs):
         load_dotenv()  # 加载 .env 文件中的配置
         self.trade_queue = queue.Queue()
-        self.cmd_mgr = ExpiredCmd()
+        self.exp_cmd = ExpiredCmd()
         self.track_fail = 0
         self.xq_mgr = XqMgr()
         self._adjust_sell = None
@@ -348,23 +348,13 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
     def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
         idx = 0
         for transaction in transactions:
-            trade_cmd = {
-                "strategy": strategy,
-                "user": userid,
-                "msg_id": transaction["msg_id"] if "msg_id" in transaction else msg_id,
-                "strategy_name": name,
-                "action": transaction["action"],
-                "stock_code": transaction["stock_code"],
-                "amount": transaction["amount"],
-                "price": transaction["price"],
-                "datetime": transaction["datetime"],
-            }
-            if self.cmd_mgr.is_cmd_expired(trade_cmd):
+            trade_cmd = cmd_mgr.build_trade_cmd(userid, transaction, strategy, name, msg_id)
+            if self.exp_cmd.is_cmd_expired(trade_cmd):
                 logger.info('指令与缓存指令冲突')
                 continue
             log_trade(logger, trade_cmd, name)
             self.execute_trade_cmd(trade_cmd)
-            self.cmd_mgr.add_cmd_to_expired_cmds(trade_cmd)
+            self.exp_cmd.add_cmd_to_expired_cmds(trade_cmd)
             idx += 1
         return idx
 
@@ -394,8 +384,6 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
     def order_transactions_sell_first(self, transactions):
         return xq_parser.order_transactions_sell_first(transactions)
 
-    
-
     @staticmethod
     def warp_list(value):
         if not isinstance(value, list):
@@ -403,4 +391,4 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         return value
 
     def load_expired_cmd_cache(self):
-        self.cmd_mgr.load_expired_cmd_cache()
+        self.exp_cmd.load_expired_cmd_cache()

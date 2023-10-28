@@ -40,3 +40,17 @@ def _is_number(s):
         return True
     except ValueError:
         return False
+    
+def build_trade_cmd(userid, transaction, strategy, name, msg_id):
+    trade_cmd = {
+        "strategy": strategy,
+        "user": userid,
+        "msg_id": transaction["msg_id"] if "msg_id" in transaction else msg_id,
+        "strategy_name": name,
+        "action": transaction["action"],
+        "stock_code": transaction["stock_code"],
+        "amount": transaction["amount"],
+        "price": transaction["price"],
+        "datetime": transaction["datetime"],
+    }
+    return trade_cmd
