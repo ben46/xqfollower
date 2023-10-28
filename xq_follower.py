@@ -32,7 +32,6 @@ class XueQiuFollower(BaseFollower):
         super().__init__()
         self._adjust_sell = None
         self._users = None
-        self.fetch_code_nm()
         # assert self.get_code("夜光明") == '873527'
         self.msg_id_set_lock = threading.Lock()
         load_dotenv()  # 加载 .env 文件中的配置
@@ -101,11 +100,6 @@ class XueQiuFollower(BaseFollower):
 
 
     def _get_assets_list(self, zh_id):
-        """
-        这段代码用于查找并提取特定策略下的资产信息，
-        然后将这些资产信息存储在一个列表中，
-        以供进一步处理或分析。如果某些配置项不包含 "total_assets" 字段，它也会进行相应的输出。
-        """
         user_domains = [u.get_domain() for u in self.users]
         return assets_mgr.get_assets_list(zh_id, user_domains, self.configs)
 
@@ -124,12 +118,6 @@ class XueQiuFollower(BaseFollower):
         logger.info("%s net val: %.2f" % (strategy_id, net_value))
         logger.info("calculate portofolio fund managetment...")
         self.configs = assets_mgr.calculate_total_assets(strategy_id, self.configs, net_value)
-
-    @staticmethod
-    def extract_strategy_id(strategy_url):
-        return strategy_url
-
-    
 
     def _get_trading_trades(self, _is_trading):
         """
@@ -221,7 +209,7 @@ class XueQiuFollower(BaseFollower):
         else:
             logger.info('not followed trade, mark database as done')
 
-        self.db_mgr.mark_as_read()
+        self.db_mgr.mark_as_read(msg_id)
 
 
     def get_users(self, userid):
@@ -300,14 +288,8 @@ class XueQiuFollower(BaseFollower):
         self.db_mgr.mark_xqp_as_done(mark_as_dones)
 
     def track_strategy_worker(self):
-        self.db_mgr._make_mysql_connect()
-        _last_time = time.time()
         while True:
             time.sleep(1)
-            if time.time() - _last_time > 30:
-                logger.info("keep mysql connection")
-                self.db_mgr.keep_alive()
-                _last_time = time.time()
             if time_utils.should_exit():
                 logger.info("15:00 exit(0)")
                 os.kill(os.getpid(), signal.SIGINT)
@@ -316,12 +298,7 @@ class XueQiuFollower(BaseFollower):
             except Exception as e:
                 with Myqq.Myqq() as myqq:
                     myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-                try:
-                    self.db_mgr.close()
-                except:
-                    pass
                 time.sleep(5)
-                self.db_mgr._make_mysql_connect()
 
     def _parse_view_string(self, view, insert_t, msg_id):
         zuhe_id = xq_parser.parse_view_zuhe_id(view)   
