@@ -50,7 +50,9 @@ class XqMgr:
         url = base_url.format(strategy_url)
         print(url)
         rep = self.s.get(url)
-        return rep
+        print(rep)
+        info_index = 0
+        return rep.json()[info_index]["name"]
 
     def _get_portfolio_info(self, portfolio_code):
         """

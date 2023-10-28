@@ -278,10 +278,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         return tra_list
 
     def extract_strategy_name(self, strategy_url):
-        rep = self.xq_mgr.extract_strategy_name(strategy_url)
-        print(rep)
-        info_index = 0
-        self.strategy_name = rep.json()[info_index]["name"]
+        self.strategy_name = self.xq_mgr.extract_strategy_name(strategy_url)
         return self.strategy_name
 
     '''
