@@ -30,12 +30,12 @@ from typing import List
 import requests
 from easytrader import exceptions
 from easytrader.log import logger
-import hashlib
 import re
 from log_warning import log_warning, log_error, log_info, log_trade
 from  expired_cmd import ExpiredCmd
 import xq_parser
 from .xq_mgr import XqMgr
+import cmd_mgr
 
 class XueQiuFollower(metaclass=abc.ABCMeta):
     
@@ -377,54 +377,24 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         """
         user_id = trade_cmd['user']
         user = self.get_users(user_id)
-        now = datetime.datetime.now()
-        
-        # 使用字典解构来获取字段
-        action = trade_cmd["action"]
-        stock_code = trade_cmd["stock_code"]
-        msg_id = trade_cmd["msg_id"]
-        strategy_name = trade_cmd["strategy_name"]
-        price = trade_cmd["price"]
-        amount = trade_cmd["amount"]
-
-        if not self._is_number(price) or price <= 0:
-            log_warning(logger, trade_cmd, now, "!price")
-            return
-
-        if amount <= 0:
-            log_warning(logger, trade_cmd, now, "!amount")
-            return
-
-        # 删除价格作为hash的来源， 因为价格是实时获取的，不是推送的
-        data = f"{action},{stock_code},{msg_id},{strategy_name}"  # 要进行加密的数据
-        my_hash = hashlib.sha256(data.encode('utf-8')).hexdigest()
-        
-        args = {
-            "security": stock_code,
-            "price": price,
-            "amount": amount,
-            "hash": my_hash,
-        }
-        
+        args, action, price =  cmd_mgr.execute_trade_cmd(trade_cmd)
         try:
+            # 调用 user 对象的指定 action 方法，传入参数 args
             response = getattr(user, action)(**args)
         except exceptions.TradeError as e:
+            # 如果出现 TradeError 异常，捕获并处理
             trader_name = type(user).__name__
             err_msg = f"{type(e).__name__}: {e.args}"
+            # 记录错误信息到日志，包括交易命令、交易者名称、价格、错误消息
             log_error(logger, trade_cmd, trader_name, price, err_msg)
         else:
+            # 如果没有异常，记录交易信息到日志，包括交易命令和价格
             log_info(logger, trade_cmd, price, response)
 
     def order_transactions_sell_first(self, transactions):
         return xq_parser.order_transactions_sell_first(transactions)
 
-    @staticmethod
-    def _is_number(s):
-        try:
-            float(s)
-            return True
-        except ValueError:
-            return False
+    
 
     @staticmethod
     def warp_list(value):
