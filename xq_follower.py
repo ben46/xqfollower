@@ -9,7 +9,6 @@ from numbers import Number
 from .follower import BaseFollower
 import asyncio
 import websockets
-from threading import Thread
 import os
 import signal
 import inspect
@@ -87,12 +86,6 @@ class XueQiuFollower(BaseFollower):
             print(strategy_url)
             self.calculate_assets(strategy_url)
             time.sleep(5)
-
-        logger.info("open new thread,loop database...")
-        strategy_worker = Thread(
-            target=self.track_strategy_worker,
-        )
-        strategy_worker.start()
 
         logger.info("openning ws...")
         asyncio.get_event_loop().run_until_complete(self.hello())
@@ -274,8 +267,8 @@ class XueQiuFollower(BaseFollower):
         except Exception as e:
             logger.warning(e)
         return rets
-          
-    def _track_strategy_worker(self):
+
+    def track_strategy_worker(self):
         off_trades = self._fetch_off_trades()
         if off_trades is None: return
         mark_as_dones = []
@@ -286,19 +279,7 @@ class XueQiuFollower(BaseFollower):
             else:
                 self._process_trade_data(trade)
         self.db_mgr.mark_xqp_as_done(mark_as_dones)
-
-    def track_strategy_worker(self):
-        while True:
-            time.sleep(1)
-            if time_utils.should_exit():
-                logger.info("15:00 exit(0)")
-                os.kill(os.getpid(), signal.SIGINT)
-            try:
-                self._track_strategy_worker()
-            except Exception as e:
-                with Myqq.Myqq() as myqq:
-                    myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-                time.sleep(5)
+             
 
     def _parse_view_string(self, view, insert_t, msg_id):
         zuhe_id = xq_parser.parse_view_zuhe_id(view)   
