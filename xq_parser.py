@@ -147,3 +147,19 @@ def parse_view_zuhe_id(view):
     results = re.findall("ZH[0-9]+", myjson['url'])
     zuhe_id = results[0]
     return zuhe_id
+
+
+def format_transaction(transactions, assets_list, **kwargs):
+    tra_list = []
+    for assets in assets_list:
+        transactions = transactions.copy()
+        kwargs['assets'] = assets
+        project_transactions(transactions, **kwargs)
+        ret = order_transactions_sell_first(transactions)
+        copy_list = []
+        for tra in ret:
+            copy_list.append(tra.copy())
+        tra_list.append(copy_list)
+    return tra_list
+
+

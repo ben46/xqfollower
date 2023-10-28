@@ -39,16 +39,9 @@ import cmd_mgr
 
 class XueQiuFollower(metaclass=abc.ABCMeta):
     
-    LOGIN_PAGE = ""
-    LOGIN_API = ""
-    TRANSACTION_API = ""
-    WEB_REFERER = ""
-    WEB_ORIGIN = ""
-    skn_nm_cache = None
     trade_cmd_expire_seconds=120
     net_val_dict = {}
     configs = []
-    track_strategy_worker_db = None
     msg_id_set = set()  # 通過socket傳過來的message id（也就是交易信息會存在這裡）
 
     def __init__(self, **kwargs):
@@ -83,12 +76,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
             print(strategy_url)
             self.calculate_assets(strategy_url)
             time.sleep(5)
-
-
-    def _get_assets_list(self, zh_id):
-        user_domains = [u.get_domain() for u in self.users]
-        return assets_mgr.get_assets_list(zh_id, user_domains, self.configs)
-
+    
     def calculate_assets(self, strategy_id):
         """
         这段代码用于管理特定策略的总资产，
@@ -105,23 +93,125 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         logger.info("calculate portofolio fund managetment...")
         self.configs = assets_mgr.calculate_total_assets(strategy_id, self.configs, net_value)
 
-    def _get_trading_trades(self, _is_trading):
-        """
-        这段代码用于从数据库中获取未读的交易记录，
-        根据 `_is_trading` 参数来筛选。
-        如果 `_is_trading` 为None，则引发类型错误。
-        然后执行数据库查询操作，返回结果。
-        如果出现异常，会将异常信息发送到Myqq并记录日志。
-        """
-        if _is_trading is None:
-            raise TypeError("is trading is none")
-        try:
-            self.db_mgr._get_trading_trades(_is_trading)
-        except Exception as e:
-            with Myqq.Myqq() as myqq:
-                myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-            logger.warning("database might disconnected! %s" % e)
+    ############################################
+    #             track
+    ############################################
+    def track_strategy_worker(self):
+        off_trades = self._fetch_off_trades()
+        if off_trades is None: return
+        mark_as_dones = []
+        for trade in off_trades:
+            msg_id = int(trade[3])
+            if msg_id in self.msg_id_set:
+                mark_as_dones.append(trade[1])
+            else:
+                self._process_trade_data(trade)
+        self.db_mgr.mark_xqp_as_done(mark_as_dones)
 
+    def _fetch_off_trades(self):
+        if time_utils.should_fetch_off_trades():
+            off_trades = self._get_trading_trades(_is_trading=0)
+            logger.info(off_trades)
+            if off_trades and len(off_trades) >0:
+                logger.info('found off trades')
+                return off_trades
+        return None
+    
+    def _process_trade_data(self, trade):
+        view = trade[0]
+        logger.info(view)
+        try:
+            insert_time = float(trade[2])
+            msg_id = int(trade[3])
+            transactions, zh_id, num, strategy_name = self._parse_view_string(view, insert_time, msg_id)
+        except Exception as e:
+            logger.warning(e)
+            return
+
+        logger.info('parse ok:')
+        logger.info(transactions)
+        logger.info('生成用户资产map...')
+        assets_list = self._get_assets_list(zh_id)
+        logger.info(assets_list)
+        rets = []
+        if len(assets_list) != 0:
+            if num > 3:
+                logger.info('调仓数目超过4条,需要爬虫获取详细信息...')
+                self.track_strategy(zh_id, strategy_name, assets_list, msg_id)
+            else:
+                logger.info('正在整理数据格式...')
+                rets = self._process_transactions(transactions, assets_list)
+            logger.info('交易分配完毕, 将数据库标记为已完成')
+        else:
+            logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
+        for ret in rets:
+            self.deal_trans(ret["uid"], ret["trans"], zh_id, strategy_name, msg_id)
+    
+    # 在需要拉取详细的交易记录时候， 这个函数会被调用
+    def track_strategy(self, strategy, name, assets_list, msg_id,  **kwargs):
+        for mytrack_times in range(5):
+            try:
+                logger.info(f"{mytrack_times}. 拉取详细的调仓记录")
+
+                # 从网络获取交易记录
+                tran_list = self.query_strategy_transaction(strategy, assets_list, **kwargs)
+                expire = (datetime.datetime.now() - tran_list[0][0]['datetime']).total_seconds()
+
+                for user_id, transactions in enumerate(tran_list):
+                    self.deal_trans(user_id, transactions, strategy, name, msg_id, **kwargs)
+
+                if expire < self.trade_cmd_expire_seconds:
+                    break
+            except Exception as e:
+                logger.exception("%d: 无法获取策略 %s 调仓信息, 错误: %s, 跳过此次调仓查询", self.track_fail, name, e)
+                self.track_fail += 1
+                print('connect fail', self.track_fail)
+                time.sleep(3 * self.track_fail)
+                continue
+            if self.track_fail != 0:
+                print('reconnected!')
+            self.track_fail = 0
+            try:
+                time.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("程序退出")
+                exit()
+    
+    def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
+        idx = 0
+        for transaction in transactions:
+            trade_cmd = cmd_mgr.build_trade_cmd(userid, transaction, strategy, name, msg_id)
+            if self.exp_cmd.is_cmd_expired(trade_cmd):
+                logger.info('指令与缓存指令冲突')
+                continue
+            log_trade(logger, trade_cmd, name)
+            self.execute_trade_cmd(trade_cmd)
+            self.exp_cmd.add_cmd_to_expired_cmds(trade_cmd)
+            idx += 1
+        return idx
+    
+    def execute_trade_cmd(self, trade_cmd):
+        """
+        分发交易指令到对应的 user 并执行
+        """
+        user_id = trade_cmd['user']
+        user = self.get_users(user_id)
+        args, action, price =  cmd_mgr.execute_trade_cmd(trade_cmd)
+        try:
+            # 调用 user 对象的指定 action 方法，传入参数 args
+            response = getattr(user, action)(**args)
+        except exceptions.TradeError as e:
+            # 如果出现 TradeError 异常，捕获并处理
+            trader_name = type(user).__name__
+            err_msg = f"{type(e).__name__}: {e.args}"
+            # 记录错误信息到日志，包括交易命令、交易者名称、价格、错误消息
+            log_error(logger, trade_cmd, trader_name, price, err_msg)
+        else:
+            # 如果没有异常，记录交易信息到日志，包括交易命令和价格
+            log_info(logger, trade_cmd, price, response)
+    ############################################
+    #             socket
+    ############################################
     def do_loop(self, body_content):
         body_content = json.loads(body_content)
         if body_content["type"] == 1:
@@ -166,59 +256,29 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
             logger.info('not followed trade, mark database as done')
 
         self.db_mgr.mark_as_read(msg_id)
-
-
-    def get_users(self, userid):
-        return self._users[userid]
     
-    def FROMOPEN_seconds():
-        return time_utils.FROMOPEN_seconds()
-
-    def _fetch_off_trades(self):
-        if time_utils.should_fetch_off_trades():
-            off_trades = self._get_trading_trades(_is_trading=0)
-            logger.info(off_trades)
-            if off_trades and len(off_trades) >0:
-                logger.info('found off trades')
-                return off_trades
-        return None
-    
-    def _process_trade_data(self, trade):
-        view = trade[0]
-        logger.info(view)
+    def _get_trading_trades(self, _is_trading):
+        """
+        这段代码用于从数据库中获取未读的交易记录，
+        根据 `_is_trading` 参数来筛选。
+        如果 `_is_trading` 为None，则引发类型错误。
+        然后执行数据库查询操作，返回结果。
+        如果出现异常，会将异常信息发送到Myqq并记录日志。
+        """
+        if _is_trading is None:
+            raise TypeError("is trading is none")
         try:
-            insert_time = float(trade[2])
-            msg_id = int(trade[3])
-            transactions, zh_id, num, strategy_name = self._parse_view_string(view, insert_time, msg_id)
+            self.db_mgr._get_trading_trades(_is_trading)
         except Exception as e:
-            logger.warning(e)
-            return
-
-        logger.info('parse ok:')
-        logger.info(transactions)
-        logger.info('生成用户资产map...')
-        assets_list = self._get_assets_list(zh_id)
-        logger.info(assets_list)
-        rets = []
-        if len(assets_list) != 0:
-            if num > 3:
-                logger.info('调仓数目超过4条,需要爬虫获取详细信息...')
-                self.track_strategy(zh_id, strategy_name, assets_list, msg_id)
-            else:
-                logger.info('正在整理数据格式...')
-                rets = self._process_transactions(transactions, assets_list)
-            logger.info('交易分配完毕, 将数据库标记为已完成')
-        else:
-            logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
-        for ret in rets:
-            self.deal_trans(ret["uid"], ret["trans"], zh_id, strategy_name, msg_id)
+            with Myqq.Myqq() as myqq:
+                myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
+            logger.warning("database might disconnected! %s" % e)
             
     def _process_transactions(self, transactions, assets_list):
         rets = []
         try:
-            tran_list = self._format_transaction(transactions, assets_list)
+            tran_list = xq_parser.format_transaction(transactions, assets_list)
             logger.info(tran_list)
-            print(self._users)
             if len(tran_list) == len(self._users):
                 for user_id in range(len(self._users)):
                     logger.info('正在处理用户%d的交易数据...' % (user_id))
@@ -230,19 +290,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         except Exception as e:
             logger.warning(e)
         return rets
-
-    def track_strategy_worker(self):
-        off_trades = self._fetch_off_trades()
-        if off_trades is None: return
-        mark_as_dones = []
-        for trade in off_trades:
-            msg_id = int(trade[3])
-            if msg_id in self.msg_id_set:
-                mark_as_dones.append(trade[1])
-            else:
-                self._process_trade_data(trade)
-        self.db_mgr.mark_xqp_as_done(mark_as_dones)
-
+    
     def _parse_view_string(self, view, insert_t, msg_id):
         zuhe_id = xq_parser.parse_view_zuhe_id(view)   
         strategy_name = xq_parser.parse_view_strategy_name(view)
@@ -263,19 +311,6 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
             return trans_list, zuhe_id, stok_num, strategy_name
         else:
             return [], zuhe_id, 0, strategy_name
-
-    def _format_transaction(self, transactions, assets_list, **kwargs):
-        tra_list = []
-        for assets in assets_list:
-            transactions = transactions.copy()
-            kwargs['assets'] = assets
-            self.project_transactions(transactions, **kwargs)
-            ret = self.order_transactions_sell_first(transactions)
-            copy_list = []
-            for tra in ret:
-                copy_list.append(tra.copy())
-            tra_list.append(copy_list)
-        return tra_list
 
     def extract_strategy_name(self, strategy_url):
         self.strategy_name = self.xq_mgr.extract_strategy_name(strategy_url)
@@ -300,79 +335,13 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         """
         portfolio_info = self._get_portfolio_info(portfolio_code)
         return xq_parser.get_portfolio_net_value(portfolio_info)
-
-    # 在需要拉取详细的交易记录时候， 这个函数会被调用
-    def track_strategy(self, strategy, name, assets_list, msg_id,  **kwargs):
-        for mytrack_times in range(5):
-            try:
-                logger.info(f"{mytrack_times}. 拉取详细的调仓记录")
-
-                # 从网络获取交易记录
-                tran_list = self.query_strategy_transaction(strategy, assets_list, **kwargs)
-                expire = (datetime.datetime.now() - tran_list[0][0]['datetime']).total_seconds()
-
-                for user_id, transactions in enumerate(tran_list):
-                    self.deal_trans(user_id, transactions, strategy, name, msg_id, **kwargs)
-
-                if expire < self.trade_cmd_expire_seconds:
-                    break
-            except Exception as e:
-                logger.exception("%d: 无法获取策略 %s 调仓信息, 错误: %s, 跳过此次调仓查询", self.track_fail, name, e)
-                self.track_fail += 1
-                print('connect fail', self.track_fail)
-                time.sleep(3 * self.track_fail)
-                continue
-            if self.track_fail != 0:
-                print('reconnected!')
-            self.track_fail = 0
-            try:
-                time.sleep(1)
-            except KeyboardInterrupt:
-                logger.info("程序退出")
-                exit()
                 
     def query_strategy_transaction(self, strategy, assets_list, **kwargs):
         history = self.xq_mgr.query_strategy_transaction(strategy)
         return xq_parser.parse_strategy_transaction(history, assets_list, kwargs)
-        
-    def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
-        idx = 0
-        for transaction in transactions:
-            trade_cmd = cmd_mgr.build_trade_cmd(userid, transaction, strategy, name, msg_id)
-            if self.exp_cmd.is_cmd_expired(trade_cmd):
-                logger.info('指令与缓存指令冲突')
-                continue
-            log_trade(logger, trade_cmd, name)
-            self.execute_trade_cmd(trade_cmd)
-            self.exp_cmd.add_cmd_to_expired_cmds(trade_cmd)
-            idx += 1
-        return idx
 
     def set_exp_secs(self, _s):
         self.trade_cmd_expire_seconds = _s
-
-    def execute_trade_cmd(self, trade_cmd):
-        """
-        分发交易指令到对应的 user 并执行
-        """
-        user_id = trade_cmd['user']
-        user = self.get_users(user_id)
-        args, action, price =  cmd_mgr.execute_trade_cmd(trade_cmd)
-        try:
-            # 调用 user 对象的指定 action 方法，传入参数 args
-            response = getattr(user, action)(**args)
-        except exceptions.TradeError as e:
-            # 如果出现 TradeError 异常，捕获并处理
-            trader_name = type(user).__name__
-            err_msg = f"{type(e).__name__}: {e.args}"
-            # 记录错误信息到日志，包括交易命令、交易者名称、价格、错误消息
-            log_error(logger, trade_cmd, trader_name, price, err_msg)
-        else:
-            # 如果没有异常，记录交易信息到日志，包括交易命令和价格
-            log_info(logger, trade_cmd, price, response)
-
-    def order_transactions_sell_first(self, transactions):
-        return xq_parser.order_transactions_sell_first(transactions)
 
     @staticmethod
     def warp_list(value):
@@ -382,3 +351,9 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
 
     def load_expired_cmd_cache(self):
         self.exp_cmd.load_expired_cmd_cache()
+    def _get_assets_list(self, zh_id):
+        user_domains = [u.get_domain() for u in self.users]
+        return assets_mgr.get_assets_list(zh_id, user_domains, self.configs)
+    def get_users(self, userid):
+        return self._users[userid]
+    
