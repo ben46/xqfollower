@@ -1,0 +1,10 @@
+2023-10-28 16:30:22,094 [INFO] assets_mgr.py 19: {'ZH': 123, 'cap0': 100, 'total_assets': 150.0}
+2023-10-28 16:30:22,095 [ERROR] assets_mgr.py 30: 雪球总资产不能小于1000元，当前预设值 150.0
+2023-10-28 16:30:22,095 [INFO] assets_mgr.py 19: {'ZH': 123, 'cap0': 300, 'total_assets': 450.0}
+2023-10-28 16:30:22,095 [ERROR] assets_mgr.py 30: 雪球总资产不能小于1000元，当前预设值 450.0
+2023-10-28 16:30:22,095 [INFO] assets_mgr.py 48: Found in 0, domain1, 123, 1500
+2023-10-28 16:30:22,095 [INFO] assets_mgr.py 46: Not found in 1, domain2, 123
+2023-10-28 16:30:55,490 [INFO] assets_mgr.py 48: Found in 0, domain1, 123, 1500
+2023-10-28 16:30:55,491 [INFO] assets_mgr.py 46: Not found in 1, domain2, 123
+2023-10-28 16:31:55,616 [INFO] assets_mgr.py 48: Found in 0, domain1, ZH123, 1500
+2023-10-28 16:31:55,616 [INFO] assets_mgr.py 46: Not found in 1, domain2, ZH123
