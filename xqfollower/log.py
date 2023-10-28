@@ -1,11 +1,32 @@
 # -*- coding: utf-8 -*-
+
 import logging
+import inspect
+
+class CustomLogger(logging.Logger):
+    def info(self, msg, *args, **kwargs):
+        current_function_name = inspect.currentframe().f_back.f_code.co_name
+        msg = f"({current_function_name}) {msg}"
+        super().info(msg, *args, **kwargs)
+        
+    def warning(self, msg, *args, **kwargs):
+        current_function_name = inspect.currentframe().f_back.f_code.co_name
+        msg = f"({current_function_name}) {msg}"
+        super().warning(msg, *args, **kwargs)
+        
+    def error(self, msg, *args, **kwargs):
+        current_function_name = inspect.currentframe().f_back.f_code.co_name
+        msg = f"({current_function_name}) {msg}"
+        super().error(msg, *args, **kwargs)
+        
+        
+        
 
 # 设置日志记录器的名称
 _logger_nm = "xqfollower"
 
-# 创建日志记录器
-logger = logging.getLogger(_logger_nm)
+# 创建日志记录器，使用自定义的CustomLogger
+logger = CustomLogger(_logger_nm)
 logger.setLevel(logging.INFO)
 
 # 定义日志格式
@@ -27,3 +48,8 @@ console.setFormatter(fmt)
 
 # 将控制台处理器添加到日志记录器
 logger.addHandler(console)
+
+if __name__ == "__main__":
+    def example_function():
+        logger.info("This is a log message from example_function.")
+    example_function()
