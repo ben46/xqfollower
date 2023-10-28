@@ -209,20 +209,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
     def create_login_params(self, user, password, **kwargs) -> dict:
         return {}
     
-    def follow(
-        self,
-        users,
-        strategy,
-        track_interval=1,
-        trade_cmd_expire_seconds=120,
-        cmd_cache=True,
-        slippage: float = 0.0,
-        **kwargs
-    ):
-
-        self.slippage = slippage
-        self.strategy = strategy
-
+    
     def getStrategy(self):
         return self.strategy
 

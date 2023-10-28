@@ -7,7 +7,6 @@ import time
 from datetime import datetime
 from numbers import Number
 from .follower import BaseFollower
-import asyncio
 import websockets
 import os
 import signal
@@ -41,43 +40,14 @@ class XueQiuFollower(BaseFollower):
         self,
         users,
         strategy_list,
-        total_assets=10000,
-        initial_assets=None,
         adjust_sell=False,
-        track_interval=10,
-        trade_cmd_expire_seconds=120,
-        cmd_cache=True,
-        slippage: float = 0.0,
+        trade_cmd_expire_seconds=120
     ):
         """跟踪 joinquant 对应的模拟交易，支持多用户多策略
         :param users: 支持 easytrader 的用户对象，支持使用 [] 指定多个用户
         :param strategies: 雪球组合名, 类似 ZH123450
-        :param total_assets: 雪球组合对应的总资产， 格式 [组合1对应资金, 组合2对应资金]
-            若 strategies=['ZH000001', 'ZH000002'],
-                设置 total_assets=[10000, 10000], 则表明每个组合对应的资产为 1w 元
-            假设组合 ZH000001 加仓 价格为 p 股票 A 10%,
-                则对应的交易指令为 买入 股票 A 价格 P 股数 1w * 10% / p 并按 100 取整
-        :param adjust_sell: 是否根据用户的实际持仓数调整卖出股票数量，
-            当卖出股票数大于实际持仓数时，调整为实际持仓数。目前仅在银河客户端测试通过。
-            当 users 为多个时，根据第一个 user 的持仓数决定
-        :type adjust_sell: bool
-        :param initial_assets: 雪球组合对应的初始资产,
-            格式 [ 组合1对应资金, 组合2对应资金 ]
-            总资产由 初始资产 × 组合净值 算得， total_assets 会覆盖此参数
-        :param track_interval: 轮训模拟交易时间，单位为秒
         :param trade_cmd_expire_seconds: 交易指令过期时间, 单位为秒
-        :param cmd_cache: 是否读取存储历史执行过的指令，防止重启时重复执行已经交易过的指令
-        :param slippage: 滑点，0.0 表示无滑点, 0.05 表示滑点为 5%
         """
-        super().follow(
-            users=users,
-            strategy=strategy_list,
-            track_interval=track_interval,
-            trade_cmd_expire_seconds=trade_cmd_expire_seconds,
-            cmd_cache=cmd_cache,
-            slippage=slippage,
-        )
-        # assert trade_cmd_expire_seconds <= 20
         self.set_exp_secs(trade_cmd_expire_seconds)
         self._adjust_sell = adjust_sell
         self._users = self.warp_list(users)
@@ -86,10 +56,6 @@ class XueQiuFollower(BaseFollower):
             print(strategy_url)
             self.calculate_assets(strategy_url)
             time.sleep(5)
-
-        logger.info("openning ws...")
-        asyncio.get_event_loop().run_until_complete(self.hello())
-        asyncio.get_event_loop().run_forever()
 
 
     def _get_assets_list(self, zh_id):
@@ -129,7 +95,7 @@ class XueQiuFollower(BaseFollower):
                 myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
             logger.warning("database might disconnected! %s" % e)
 
-    def _do_loop(self, body_content):
+    def do_loop(self, body_content):
         body_content = json.loads(body_content)
         if body_content["type"] == 1:
             logger.info("new msg arrived, %s" % body_content)
@@ -142,36 +108,6 @@ class XueQiuFollower(BaseFollower):
             except Exception as e:
                 with Myqq.Myqq() as myqq:
                     myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-
-    async def hello(self):
-        while 1:
-            try:
-                async with websockets.connect(
-                        'ws://127.0.0.1:4000') as websocket:
-                    logger.info("ws connected...")
-                    with Myqq.Myqq() as myqq:
-                        myqq.send_suc(__file__, inspect.stack()[0][0].f_code.co_name, "connected to ws")
-                    while True:
-                        try:
-                            body_content = await websocket.recv()
-                            self._do_loop(body_content)
-                        except websockets.WebSocketException.ConnectionClosed as e:
-                            await websocket.close()  # Close the WebSocket connection
-                            logger.info("WebSocket disconnected")
-                            with Myqq.Myqq() as myqq:
-                                myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name,
-                                                    "WebSocket disconnected")
-                            break
-                        except Exception as e:
-                            with Myqq.Myqq() as myqq:
-                                myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, str(e))
-                            break
-            except Exception as e:
-                # disconnect
-                with Myqq.Myqq() as myqq:
-                    myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-                time.sleep(5)
-
 
     def do_socket_trade(self, body_content):
         myjson = json.loads(body_content)
@@ -279,7 +215,6 @@ class XueQiuFollower(BaseFollower):
             else:
                 self._process_trade_data(trade)
         self.db_mgr.mark_xqp_as_done(mark_as_dones)
-             
 
     def _parse_view_string(self, view, insert_t, msg_id):
         zuhe_id = xq_parser.parse_view_zuhe_id(view)   
