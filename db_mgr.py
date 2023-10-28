@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 from mysql.connector import pooling
+import threading
+import time
 
 class SingletonMeta(type):
     _instances = {}
@@ -9,15 +11,18 @@ class SingletonMeta(type):
         if cls not in cls._instances:
             cls._instances[cls] = super(SingletonMeta, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
-    
+
 class DbMgr(metaclass=SingletonMeta):
     _instance = None
 
     def __init__(self):
         self.initialize()
+        self.keep_alive_thread = threading.Thread(target=self.keep_alive_loop)
+        self.keep_alive_thread.daemon = True  # Set the thread as a daemon so it will exit when the main program exits
+        self.keep_alive_thread.start()
 
     def initialize(self):
-        load_dotenv()  # 加载 .env 文件中的配置
+        load_dotenv()
         self.db_pool = pooling.MySQLConnectionPool(
             pool_name="db_pool",
             pool_size=5,
@@ -39,7 +44,6 @@ class DbMgr(metaclass=SingletonMeta):
             raise e
         finally:
             cursor.close()
-            connection.close()
 
     def keep_alive(self):
         connection = self.db_pool.get_connection()
@@ -49,8 +53,12 @@ class DbMgr(metaclass=SingletonMeta):
             cursor.fetchall()
         finally:
             cursor.close()
-            connection.close()
-    
+
+    def keep_alive_loop(self):
+        while True:
+            self.keep_alive()
+            time.sleep(30)  # Sleep for 30 seconds
+
     def _get_trading_trades(self, _is_trading):
         connection = self.db_pool.get_connection()
         cursor = connection.cursor()
