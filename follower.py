@@ -232,10 +232,6 @@ class BaseFollower(metaclass=abc.ABCMeta):
             value = [value]
         return value
 
-    @staticmethod
-    def extract_strategy_id(strategy_url):
-        pass
-
     def extract_strategy_name(self, strategy_url):
         pass
 
