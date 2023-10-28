@@ -2,16 +2,9 @@
 from __future__ import division, print_function, unicode_literals
 
 import json
-import re
 import time
 from datetime import datetime
-from numbers import Number
-from .follower import BaseFollower
-import websockets
-import os
-import signal
 import inspect
-import utils_zq.Myqq as Myqq
 import threading
 from dotenv import load_dotenv
 from db_mgr import DbMgr
@@ -22,15 +15,11 @@ import assets_mgr
 import abc
 import datetime
 import os
-import pickle
 import queue
 import threading
 import time
-from typing import List
-import requests
-from easytrader import exceptions
-from easytrader.log import logger
-import re
+import exceptions
+from .log import logger
 from log_warning import log_warning, log_error, log_info, log_trade
 from  expired_cmd import ExpiredCmd
 import xq_parser
@@ -223,8 +212,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
             try:
                 self.do_socket_trade(body_content["data"])
             except Exception as e:
-                with Myqq.Myqq() as myqq:
-                    myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
+                logger.warning(e)
 
     def do_socket_trade(self, body_content):
         myjson = json.loads(body_content)
@@ -270,8 +258,6 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         try:
             self.db_mgr._get_trading_trades(_is_trading)
         except Exception as e:
-            with Myqq.Myqq() as myqq:
-                myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
             logger.warning("database might disconnected! %s" % e)
             
     def _process_transactions(self, transactions, assets_list):

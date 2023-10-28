@@ -72,11 +72,8 @@ class XqMgr:
                 resp = self.s.get(url, timeout=3)
                 return resp
             except Exception as e:
-                # TODO 
-                # send exception email through flask api
-                # myqq.send_exception(__file__, inspect.stack()[0][0].f_code.co_name, e)
-                print('cookie可能过期了')
-                print('fetch fail try 10s later')
+                logger.warning('cookie可能过期了%s' % e)
+                logger.info('fetch fail try 10s later')
                 time.sleep(10)
                 
     def create_query_transaction_params(self, strategy):
