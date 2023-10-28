@@ -336,7 +336,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         return value
 
     def load_expired_cmd_cache(self):
-        self.exp_cmd.load_expired_cmd_cache()
+        self.exp_cmd._load_expired_cmd_cache()
     def _get_assets_list(self, zh_id):
         user_domains = [u.get_domain() for u in self.users]
         return assets_mgr.get_assets_list(zh_id, user_domains, self.configs)
