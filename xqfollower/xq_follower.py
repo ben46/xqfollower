@@ -4,8 +4,6 @@ from __future__ import division, print_function, unicode_literals
 import json
 import time
 from datetime import datetime
-import inspect
-import threading
 from dotenv import load_dotenv
 from db_mgr import DbMgr
 from .log import logger
@@ -13,16 +11,12 @@ import xq_parser
 import time_utils
 import assets_mgr
 import abc
-import datetime
-import os
 import queue
 import threading
 import time
 import exceptions
-from .log import logger
-from xqfollower.log_util import log_warning, log_error, log_info, log_trade
+from .log_util import log_warning, log_error, log_info, log_trade
 from  expired_cmd import ExpiredCmd
-import xq_parser
 from .xq_mgr import XqMgr
 import cmd_mgr
 
@@ -144,7 +138,7 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
 
                 # 从网络获取交易记录
                 tran_list = self.query_strategy_transaction(strategy, assets_list, **kwargs)
-                expire = (datetime.datetime.now() - tran_list[0][0]['datetime']).total_seconds()
+                expire = (datetime.now() - tran_list[0][0]['datetime']).total_seconds()
 
                 for user_id, transactions in enumerate(tran_list):
                     self.deal_trans(user_id, transactions, strategy, name, msg_id, **kwargs)
