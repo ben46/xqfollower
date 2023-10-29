@@ -8,7 +8,7 @@ def parse_portfolio_info(resp):
             return
     match_info = re.search(r"(?<=SNB.cubeInfo = ).*(?=;\n)", resp.text)
     if match_info is None:
-        raise Exception("cant get portfolio info, portfolio url : {}".format(portfolio_code))
+        raise Exception("cant parse cubeInfo portfolio info")
     try:
         portfolio_info = json.loads(match_info.group())
     except Exception as e:
