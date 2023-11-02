@@ -3,7 +3,7 @@ import socketio
 
 from .log import logger 
 from .time_utils import is_off_trading_hour
-
+import json
 class XueQiuWebsocketManager:
     
     def __init__(self, target, action):
@@ -24,9 +24,16 @@ class XueQiuWebsocketManager:
         def on_broadcast_message(data):
             logger.info(f'收到广播消息：{data}')
             if is_off_trading_hour():
+                # 非交易时间的, 暂时不处理, 等交易时间再处理
                 self.sio.emit('special_message', data)
             else:
-                getattr(self.target, self.action)(data)
+                data = json.loads(data)
+                if data["type"] != 1: return
+                logger.info("new msg arrived, %s" % data)
+                try:
+                    getattr(self.target, self.action)(data["data"])
+                except Exception as e:
+                    logger.warning(e)
                 
         # 当收到特定消息时的事件处理函数
         @self.sio.on('consumed_message')

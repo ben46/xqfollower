@@ -19,6 +19,7 @@ from .log_util import log_warning, log_error, log_info, log_trade
 from  expired_cmd import ExpiredCmd
 from .xq_mgr import XqMgr
 import cmd_mgr
+from .xq_ws_mgr import XueQiuWebsocketManager
 
 class XueQiuFollower(metaclass=abc.ABCMeta):
     
@@ -75,61 +76,46 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
         logger.info("%s net val: %.2f" % (strategy_id, net_value))
         logger.info("calculate portofolio fund managetment...")
         self.configs = assets_mgr.calculate_total_assets(strategy_id, self.configs, net_value)
+        self.ws_mgr = XueQiuWebsocketManager()
 
     ############################################
     #             track
     ############################################
-    def track_strategy_worker(self):
-        off_trades = self._fetch_off_trades()
-        if off_trades is None: return
-        mark_as_dones = []
-        for trade in off_trades:
-            msg_id = int(trade[3])
-            if msg_id in self.msg_id_set:
-                mark_as_dones.append(trade[1])
-            else:
-                self._process_trade_data(trade)
-        self.db_mgr.mark_xqp_as_done(mark_as_dones)
-
-    def _fetch_off_trades(self):
-        if time_utils.should_fetch_off_trades():
-            off_trades = self._get_trading_trades(_is_trading=0)
-            logger.info(off_trades)
-            if off_trades and len(off_trades) >0:
-                logger.info('found off trades')
-                return off_trades
-        return None
+    def consume_offline_msg(self):
+        self.ws_mgr.consume_special_messages()
     
-    def _process_trade_data(self, trade):
-        view = trade[0]
+    ############################################
+    #             socket
+    ############################################
+    def do_socket_trade(self, body_content):
+        myjson = json.loads(body_content)
+        msg_id = myjson['result'][0]["messages"][0]['messageId']
+
+        # Acquire a lock before accessing msg_id_set
+        with self.msg_id_set_lock:
+            if msg_id in self.msg_id_set:  # Avoid receiving duplicate push messages
+                logger.info("same msg id, skip")
+                return
+            self.msg_id_set.add(msg_id)
+        view = myjson['result'][0]["messages"][0]['view']
         logger.info(view)
         try:
-            insert_time = float(trade[2])
-            msg_id = int(trade[3])
-            transactions, zh_id, num, strategy_name = self._parse_view_string(view, insert_time, msg_id)
-        except Exception as e:
-            logger.warning(e)
+            transactions, zh_id, num, strategy_name = self._parse_view_string(view, time.time(), msg_id)
+        except:
+            logger.info("parse error %s,skip" % view)
             return
-
         logger.info('parse ok:')
         logger.info(transactions)
-        logger.info('生成用户资产map...')
+        logger.info('making user asserts map...')
         assets_list = self._get_assets_list(zh_id)
         logger.info(assets_list)
-        rets = []
         if len(assets_list) != 0:
-            if num > 3:
-                logger.info('调仓数目超过4条,需要爬虫获取详细信息...')
-                self.track_strategy(zh_id, strategy_name, assets_list, msg_id)
-            else:
-                logger.info('正在整理数据格式...')
-                rets = self._process_transactions(transactions, assets_list)
-            logger.info('交易分配完毕, 将数据库标记为已完成')
+            logger.info('change over 4,need more details...')
+            self.track_strategy(zh_id, strategy_name, assets_list, msg_id)
+            logger.info('trade all done, mark database as done')
         else:
-            logger.info('推送中没有需要跟单交易的组合, 将数据库标记为已完成')
-        for ret in rets:
-            self.deal_trans(ret["uid"], ret["trans"], zh_id, strategy_name, msg_id)
-    
+            logger.info('not followed trade, mark database as done')
+            
     # 在需要拉取详细的交易记录时候， 这个函数会被调用
     def track_strategy(self, strategy, name, assets_list, msg_id,  **kwargs):
         for mytrack_times in range(5):
@@ -159,100 +145,6 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
             except KeyboardInterrupt:
                 logger.info("程序退出")
                 exit()
-    
-    def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
-        idx = 0
-        for transaction in transactions:
-            trade_cmd = cmd_mgr.build_trade_cmd(userid, transaction, strategy, name, msg_id)
-            if self.exp_cmd.is_cmd_expired(trade_cmd):
-                logger.info('指令与缓存指令冲突')
-                continue
-            log_trade(logger, trade_cmd, name)
-            self.execute_trade_cmd(trade_cmd)
-            self.exp_cmd.add_cmd_to_expired_cmds(trade_cmd)
-            idx += 1
-        return idx
-    
-    def execute_trade_cmd(self, trade_cmd):
-        """
-        分发交易指令到对应的 user 并执行
-        """
-        user_id = trade_cmd['user']
-        user = self.get_users(user_id)
-        args, action, price =  cmd_mgr.execute_trade_cmd(trade_cmd)
-        try:
-            # 调用 user 对象的指定 action 方法，传入参数 args
-            response = getattr(user, action)(**args)
-        except exceptions.TradeError as e:
-            # 如果出现 TradeError 异常，捕获并处理
-            trader_name = type(user).__name__
-            err_msg = f"{type(e).__name__}: {e.args}"
-            # 记录错误信息到日志，包括交易命令、交易者名称、价格、错误消息
-            log_error(logger, trade_cmd, trader_name, price, err_msg)
-        else:
-            # 如果没有异常，记录交易信息到日志，包括交易命令和价格
-            log_info(logger, trade_cmd, price, response)
-    ############################################
-    #             socket
-    ############################################
-    def do_loop(self, body_content):
-        body_content = json.loads(body_content)
-        if body_content["type"] == 1:
-            logger.info("new msg arrived, %s" % body_content)
-            if time_utils.is_off_trading_hour():
-                # 非交易时间的, 暂时不处理, 等交易时间再处理
-                logger.info("not trading time%s" % body_content)
-                return
-            try:
-                self.do_socket_trade(body_content["data"])
-            except Exception as e:
-                logger.warning(e)
-
-    def do_socket_trade(self, body_content):
-        myjson = json.loads(body_content)
-        msg_id = myjson['result'][0]["messages"][0]['messageId']
-
-        # Acquire a lock before accessing msg_id_set
-        with self.msg_id_set_lock:
-            if msg_id in self.msg_id_set:  # Avoid receiving duplicate push messages
-                logger.info("same msg id, skip")
-                return
-            self.msg_id_set.add(msg_id)
-        view = myjson['result'][0]["messages"][0]['view']
-        logger.info(view)
-        try:
-            transactions, zh_id, num, strategy_name = self._parse_view_string(view, time.time(), msg_id)
-        except:
-            logger.info("parse error %s,skip" % view)
-            return
-        logger.info('parse ok:')
-        logger.info(transactions)
-        logger.info('making user asserts map...')
-        assets_list = self._get_assets_list(zh_id)
-        logger.info(assets_list)
-        if len(assets_list) != 0:
-            logger.info('change over 4,need more details...')
-            self.track_strategy(zh_id, strategy_name, assets_list, msg_id)
-            logger.info('trade all done, mark database as done')
-        else:
-            logger.info('not followed trade, mark database as done')
-
-        self.db_mgr.mark_as_read(msg_id)
-    
-    def _get_trading_trades(self, _is_trading):
-        """
-        这段代码用于从数据库中获取未读的交易记录，
-        根据 `_is_trading` 参数来筛选。
-        如果 `_is_trading` 为None，则引发类型错误。
-        然后执行数据库查询操作，返回结果。
-        如果出现异常，会将异常信息发送到Myqq并记录日志。
-        """
-        if _is_trading is None:
-            raise TypeError("is trading is none")
-        try:
-            self.db_mgr._get_trading_trades(_is_trading)
-        except Exception as e:
-            logger.warning("database might disconnected! %s" % e)
             
     def _process_transactions(self, transactions, assets_list):
         rets = []
@@ -291,6 +183,39 @@ class XueQiuFollower(metaclass=abc.ABCMeta):
             return trans_list, zuhe_id, stok_num, strategy_name
         else:
             return [], zuhe_id, 0, strategy_name
+    
+    def deal_trans(self, userid, transactions, strategy, name, msg_id, interval=10,  **kwargs):
+        idx = 0
+        for transaction in transactions:
+            trade_cmd = cmd_mgr.build_trade_cmd(userid, transaction, strategy, name, msg_id)
+            if self.exp_cmd.is_cmd_expired(trade_cmd):
+                logger.info('指令与缓存指令冲突')
+                continue
+            log_trade(logger, trade_cmd, name)
+            self.execute_trade_cmd(trade_cmd)
+            self.exp_cmd.add_cmd_to_expired_cmds(trade_cmd)
+            idx += 1
+        return idx
+    
+    def execute_trade_cmd(self, trade_cmd):
+        """
+        分发交易指令到对应的 user 并执行
+        """
+        user_id = trade_cmd['user']
+        user = self.get_users(user_id)
+        args, action, price =  cmd_mgr.execute_trade_cmd(trade_cmd)
+        try:
+            # 调用 user 对象的指定 action 方法，传入参数 args
+            response = getattr(user, action)(**args)
+        except exceptions.TradeError as e:
+            # 如果出现 TradeError 异常，捕获并处理
+            trader_name = type(user).__name__
+            err_msg = f"{type(e).__name__}: {e.args}"
+            # 记录错误信息到日志，包括交易命令、交易者名称、价格、错误消息
+            log_error(logger, trade_cmd, trader_name, price, err_msg)
+        else:
+            # 如果没有异常，记录交易信息到日志，包括交易命令和价格
+            log_info(logger, trade_cmd, price, response)
 
     def extract_strategy_name(self, strategy_url):
         self.strategy_name = self.xq_mgr.extract_strategy_name(strategy_url)

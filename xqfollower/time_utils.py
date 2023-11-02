@@ -28,13 +28,26 @@ def FROMOPEN_seconds():
     if now.timestamp() > CLOSE_PM.timestamp():
         return 240*60
     return 0
+
+
+def is_workday():
+    now = datetime.now(pytz.timezone('Asia/Chongqing'))
+    # 获取当前日期的星期几（星期一是0，星期日是6）
+    weekday = now.weekday()
     
+    # 检查是否是星期一至星期五
+    if 0 <= weekday < 5:
+        return True
+    else:
+        return False
+
+
 def should_exit():
     return datetime.now(pytz.timezone('Asia/Chongqing')).hour >= 15
 
 def is_off_trading_hour():
     sec = FROMOPEN_seconds()
-    return sec == 240*60 or sec == 120*60 or sec == 0
+    return sec == 240*60 or sec == 120*60 or sec == 0 or not is_workday()
 
 def should_fetch_off_trades():
     return 0 < FROMOPEN_seconds() <= 20 or 120 * 60 < FROMOPEN_seconds() <= 120 * 60 + 20

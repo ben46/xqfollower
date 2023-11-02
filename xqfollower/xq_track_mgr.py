@@ -6,6 +6,7 @@ import time_utils
 
 from .log import logger
 
+
 class XueQiuTrackManager:
     def __init__(self, target, action):
         self.target = target
@@ -15,6 +16,9 @@ class XueQiuTrackManager:
         
     def track_strategy(self):
         while True:
+            if time_utils.is_off_trading_hour():
+                time.sleep(1)
+                continue
             time.sleep(1)
             if time_utils.should_exit():
                 logger.info("15:00 exit(0)")

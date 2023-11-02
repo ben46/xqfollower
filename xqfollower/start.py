@@ -4,8 +4,8 @@ from xq_track_mgr import XueQiuTrackManager
 
 def main():
     xq = XueQiuFollower()
-    ws = XueQiuWebsocketManager(xq, "do_loop")
-    track = XueQiuTrackManager(xq, "track_strategy_worker")
+    ws = XueQiuWebsocketManager(xq, "do_socket_trade")
+    track = XueQiuTrackManager(xq, "consume_offline_msg")
     
 if __name__ == "__main__":
     main()
